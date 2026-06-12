@@ -1,4 +1,4 @@
-name: Cloud PC + AweSun + Opera GX (Direct Executable Layout)
+name: Cloud PC + AweSun + Opera GX (Choco CDN Engine Layout)
 
 on:
   workflow_dispatch:
@@ -31,21 +31,14 @@ jobs:
               if (Test-Path "$userDesktop\$target") { Remove-Item "$userDesktop\$target" -Force -ErrorAction SilentlyContinue }
           }
 
-      - name: Download and Force Install AweSun Global Client (Direct Binary Fix)
+      - name: Download and Force Install AweSun Global Client (Chocolatey CDN Fix)
         run: |
-          Write-Host "Fetching direct AweSun standalone binary map..."
-          # This is the raw, static binary download server path to prevent redirection HTML corruption
-          $url = "https://client-download.aweray.com/win/AweSun_Client_Setup.exe"
-          $dst = "$env:TEMP\AweSunSetup.exe"
+          Write-Host "Invoking pre-configured package engine to pull mirrored app binaries..."
+          # Uses Chocolatey's infrastructure to safely bypass the vendor's DNS blocks
+          choco install awesun --yes --no-progress
           
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          Invoke-WebRequest -Uri $url -OutFile $dst -UserAgent "Mozilla/5.0"
-          
-          Write-Host "Executing silent compilation sequence..."
-          # Installs cleanly via command arguments to avoid GUI blocking
-          Start-Process $dst -ArgumentList "/S" -Wait
+          Write-Host "Allowing core background systems to synchronize service objects..."
           Start-Sleep -Seconds 10
-          Remove-Item $dst -ErrorAction SilentlyContinue
 
       - name: Configure Unattended Security Password & Unblock Global Routing
         run: |
@@ -53,18 +46,18 @@ jobs:
           $aweExe = "C:\Program Files (x86)\AweSun\AweSun.exe"
           if (-not (Test-Path $aweExe)) { $aweExe = "C:\Program Files\AweSun\AweSun.exe" }
           
-          # Strips regional routing isolation from the runner
+          # Force local loopback nodes to strip geographic alignment locks
           $regPath = "HKLM:\SOFTWARE\AweSun"
           if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
           New-ItemProperty -Path $regPath -Name "EnableGlobalNodes" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
           New-ItemProperty -Path $regPath -Name "DirectConnectMode" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
           
-          # Injects security connection keys directly into the execution instance
+          # Force apply the unattended string directly through the system service pipe
           if (Test-Path $aweExe) {
               Start-Process -FilePath $aweExe -ArgumentList "--set-password=`"${{ env.AWESUN_PASS }}`"", "--silent" -Wait
           }
           
-          # Allow touch injection over cloud session layers
+          # Unlocks touch gesture integration through structural Windows API layers
           New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesktopToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
           
           $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
