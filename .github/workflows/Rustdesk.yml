@@ -1,4 +1,4 @@
-name: Cloud PC + RustDesk + Opera GX (Screenshot ID Capture)
+name: Cloud PC + RustDesk + Opera GX (Legacy ID Extraction)
 
 on:
   workflow_dispatch:
@@ -31,20 +31,31 @@ jobs:
               if (Test-Path "$userDesktop\$target") { Remove-Item "$userDesktop\$target" -Force -ErrorAction SilentlyContinue }
           }
 
-      - name: Download and Force Install RustDesk Client
+      - name: Download and Force Install RustDesk Client (Legacy Build)
         run: |
-          Write-Host "Fetching RustDesk Executable Layout from GitHub Mirror..."
-          $url = "https://github.com/rustdesk/rustdesk/releases/download/1.3.1/rustdesk-1.3.1-x86_64.exe"
-          $dst = "$env:TEMP\RustDeskSetup.exe"
+          Write-Host "Fetching Legacy unencrypted RustDesk Layout from GitHub Archive..."
+          # Fetching version 1.1.9 which preserves raw text config parameters
+          $url = "https://github.com/rustdesk/rustdesk/releases/download/1.1.9/rustdesk-1.1.9-windows_x64.zip"
+          $zipDst = "$env:TEMP\RustDeskLegacy.zip"
+          $extractDir = "C:\Program Files\RustDesk"
           
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          Invoke-WebRequest -Uri $url -OutFile $dst -UserAgent "Mozilla/5.0"
+          Invoke-WebRequest -Uri $url -OutFile $zipDst -UserAgent "Mozilla/5.0"
           
-          Write-Host "Executing silent compilation and physical system deployment..."
-          # Crucial fix: --install forces it to create the 'C:\Program Files\RustDesk' directory structure
-          Start-Process $dst -ArgumentList "--install" -Wait
+          Write-Host "Unpacking and deploying legacy binaries..."
+          if (-not (Test-Path $extractDir)) { New-Item -ItemType Directory -Path $extractDir -Force }
+          Expand-Archive -Path $zipDst -DestinationPath $extractDir -Force
+          
+          # Standardize binary layout name inside the destination path
+          if (Test-Path "$extractDir\rustdesk-1.1.9.exe") {
+              Rename-Item -Path "$extractDir\rustdesk-1.1.9.exe" -NewName "rustdesk.exe" -Force
+          }
+          
+          Write-Host "Registering background system execution threads..."
+          $rdExe = "$extractDir\rustdesk.exe"
+          Start-Process $rdExe -ArgumentList "--install-service" -Wait
           Start-Sleep -Seconds 10
-          Remove-Item $dst -ErrorAction SilentlyContinue
+          Remove-Item $zipDst -ErrorAction SilentlyContinue
 
       - name: Configure Unattended Security Password & Connection Profile
         run: |
@@ -52,14 +63,10 @@ jobs:
           $rdExe = "C:\Program Files\RustDesk\rustdesk.exe"
           
           if (Test-Path $rdExe) {
-              # Pass password direct to installed binary to match System contexts
               Start-Process -FilePath $rdExe -ArgumentList "--password", "${{ env.RUSTDESK_PASS }}" -Wait
-          } else {
-              Write-Error "CRITICAL: RustDesk binary not found in Program Files!"
-              exit 1
           }
           
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesktopToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
           
           $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
           Set-ItemProperty -Path $path -Name "TaskbarGlomLevel" -Value 0 -ErrorAction SilentlyContinue
@@ -101,52 +108,55 @@ jobs:
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --with-feature:gx-rewards=1"
           $Shortcut.Save()
 
-      - name: Launch RustDesk GUI & Upload ID Screenshot
+      - name: Fetch and Display Legacy RustDesk Connection Credentials
         run: |
-          $rdExe = "C:\Program Files\RustDesk\rustdesk.exe"
-          Write-Host "Launching RustDesk interface to generate visual ID..."
-          Start-Process -FilePath $rdExe -ErrorAction SilentlyContinue
+          Write-Host "Scanning infrastructure maps for unencrypted plain text RustDesk keys..."
+          $deviceId = "Fetching..."
           
-          # Give RustDesk a 15-second grace period to connect to servers and display the ID on screen
-          Write-Host "Waiting for ID generation matrix to stabilize..."
-          Start-Sleep -Seconds 15
-          
-          $screenshotPath = "$env:TEMP\rustdesk_display.png"
-          
-          Write-Host "Snapping screen frame..."
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-          $bitmap.Save($screenshotPath, [System.Drawing.Imaging.ImageFormat]::Png)
-          $graphics.Dispose(); $bitmap.Dispose()
-          
-          Write-Host "Uploading frame map to Telegraph..."
-          try {
-              $upload = curl.exe -s -F "file=@$screenshotPath" https://telegra.ph/upload
-              if ($upload -match '"src":"([^"]+)"') {
-                  $cleanUrl = "https://telegra.ph" + $Matches[1]
-                  "SCREENSHOT_URL=$cleanUrl" | Out-File -Append $env:GITHUB_ENV
-                  
-                  $ESC = [char]27
-                  Write-Host "${ESC}[32m====================================================${ESC}[0m"
-                  Write-Host "${ESC}[36m   CLICK THE LINK BELOW TO VIEW YOUR RUSTDESK ID    ${ESC}[0m"
-                  Write-Host "${ESC}[32m====================================================${ESC}[0m"
-                  Write-Host "${ESC}[33m WEB LINK : ${ESC}[31m$cleanUrl${ESC}[0m"
-                  Write-Host "${ESC}[32m====================================================${ESC}[0m"
-              } else {
-                  Write-Warning "Telegraph upload failed. Response text: $upload"
+          # In 1.1.9, we loop until the network handshake finishes and drops the config string
+          for ($i = 1; $i -le 15; $i++) {
+              # Check the service profile's unencrypted configuration mapping
+              $configPath = "C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\RustDesk\config\RustDesk_local.toml"
+              if (Test-Path $configPath) {
+                  $content = Get-Content $configPath -Raw
+                  if ($content -match 'id\s*=\s*''(\d+)''') {
+                      $deviceId = $Matches[1]
+                      break
+                  }
               }
-          } catch {
-              Write-Host "CDN Upload sequence error: $($_.Exception.Message)"
+              
+              # Fallback path parsing check
+              $altPath = "$env:APPDATA\RustDesk\config\RustDesk_local.toml"
+              if (Test-Path $altPath) {
+                  $content = Get-Content $altPath -Raw
+                  if ($content -match 'id\s*=\s*''(\d+)''') {
+                      $deviceId = $Matches[1]
+                      break
+                  }
+              }
+              Start-Sleep -Seconds 2
           }
+          
+          if ($deviceId -eq "Fetching...") { $deviceId = "Not Found (Network Handshake Pending)" }
+          
+          $ESC = [char]27
+          $Green = "$ESC[32m"
+          $Yellow = "$ESC[33m"
+          $Red = "$ESC[31m"
+          $Reset = "$ESC[0m"
+          
+          Write-Host "${Green}====================================================${Reset}"
+          Write-Host "${Green}      LEGACY RUSTDESK CLOUD PC IS ONLINE            ${Reset}"
+          Write-Host "${Green}====================================================${Reset}"
+          Write-Host "${Yellow} RUSTDESK ID     : ${Red}${deviceId}${Reset}"
+          Write-Host "${Yellow} ACCESS PASSWORD : ${Red}${{ env.RUSTDESK_PASS }}${Reset}"
+          Write-Host "${Green}====================================================${Reset}"
 
       - name: Keep alive
         run: |
           $mins = [int]"${{ env.RUNTIME_MINUTES }}"
           $end = (Get-Date).AddMinutes($mins)
           while ((Get-Date) -lt $end) {
-            Write-Host ("Cloud PC Heartbeat " + (Get-Date).ToString("HH:mm:ss") + " | Active until " + $end.ToString("HH:mm:ss") + " | RS URL: $env:SCREENSHOT_URL")
+            Write-Host ("Cloud PC Heartbeat " + (Get-Date).ToString("HH:mm:ss") + " | Active until " + $end.ToString("HH:mm:ss"))
             Start-Sleep -Seconds 60
           }
