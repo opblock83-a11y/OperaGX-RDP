@@ -31,47 +31,43 @@ jobs:
               if (Test-Path "$userDesktop\$target") { Remove-Item "$userDesktop\$target" -Force -ErrorAction SilentlyContinue }
           }
 
-      - name: Download and Force Install AnyDesk Client
+      - name: Set Up Standalone AnyDesk Directory
         run: |
-          Write-Host "Fetching stable AnyDesk executable core..."
+          Write-Host "Deploying clean filesystem framework..."
+          $targetDir = "C:\Program Files (x86)\AnyDesk"
+          if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force }
+          
+          Write-Host "Fetching stable AnyDesk binary..."
           $url = "https://download.anydesk.com/AnyDesk.exe"
-          $dst = "$env:TEMP\AnyDesk.exe"
+          $targetPath = "$targetDir\AnyDesk.exe"
           
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          Invoke-WebRequest -Uri $url -OutFile $dst -UserAgent "Mozilla/5.0"
-          
-          Write-Host "Registering background system execution threads..."
-          # Running with explicit silent flags directly inside the path instantiation
-          Start-Process $dst -ArgumentList "--install", "C:\Program Files (x86)\AnyDesk", "--silent" -Wait
-          
-          # Dynamic verification loop to make sure the file exists before advancing steps
-          $targetPath = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
-          for ($i = 1; $i -le 10; $i++) {
-              if (Test-Path $targetPath) {
-                  Write-Host "AnyDesk binary successfully isolated and deployed."
-                  break
-              }
-              Write-Host "Waiting for background unpacking threads to settle..."
-              Start-Sleep -Seconds 3
-          }
-          Remove-Item $dst -ErrorAction SilentlyContinue
+          Invoke-WebRequest -Uri $url -OutFile $targetPath -UserAgent "Mozilla/5.0"
 
       - name: Configure Unattended Security Password & Connection Profile
         run: |
-          Write-Host "Injecting security connection keys into the execution instance..."
+          Write-Host "Injecting security credentials..."
           $targetPath = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
           
-          if (Test-Path $targetPath) {
-              echo "${{ env.ANYDESK_PASS }}" | & $targetPath --set-password
-          } else {
-              Write-Error "CRITICAL: AnyDesk destination layout binary missing!"
-              exit 1
-          }
+          # Assign the system password directly to the standalone binary
+          echo "${{ env.ANYDESK_PASS }}" | & $targetPath --set-password
           
           New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesktopToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
           
           $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
           Set-ItemProperty -Path $path -Name "TaskbarGlomLevel" -Value 0 -ErrorAction SilentlyContinue
+
+      - name: Optimize Canvas Resolution for No-Scroll Mobile View
+        run: |
+          Write-Host "Forcing screen resolution calibration to 1920x1080 frame buffer..."
+          # Calibrates display layout to HD bounds to prevent scrollbars on mobile viewports
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction SilentlyContinue
+
+      - name: Launch AnyDesk Core Service Thread
+        run: |
+          Write-Host "Starting AnyDesk application in backend context..."
+          $targetPath = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+          Start-Process -FilePath $targetPath -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 5
 
       - name: Minimize Running Infrastructure Windows
@@ -79,11 +75,6 @@ jobs:
           Write-Host "Sending active command prompt windows to the taskbar tray..."
           $shell = New-Object -ComObject Shell.Application
           $shell.MinimizeAll()
-
-      - name: Optimize Canvas Resolution for No-Scroll Mobile View
-        run: |
-          Write-Host "Forcing screen resolution calibration to 1920x1080 frame buffer..."
-          Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction SilentlyContinue
 
       - name: Download & Force Consumer Build of Opera GX
         run: |
@@ -112,7 +103,7 @@ jobs:
 
       - name: Fetch and Display AnyDesk Connection Credentials
         run: |
-          Write-Host "Querying configuration engine for local terminal ID..."
+          Write-Host "Querying engine metadata for terminal identification parameters..."
           $targetPath = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
           $deviceId = "Not Found"
           
