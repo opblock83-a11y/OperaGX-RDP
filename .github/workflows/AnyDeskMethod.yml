@@ -1,4 +1,4 @@
-name: Cloud PC + AnyDesk + Opera GX (Touch & Window Fix)
+name: Cloud PC + AnyDesk + Opera GX (Stable Restored Layout)
 
 on:
   workflow_dispatch:
@@ -44,29 +44,28 @@ jobs:
           Start-Sleep -Seconds 5
           Remove-Item $dst -ErrorAction SilentlyContinue
 
-      - name: Configure Unattended Access Password & Touch Input Drivers
+      - name: Configure Unattended Access Password & Touch Settings
         run: |
           $ad = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
           if (-not (Test-Path $ad)) { $ad = "C:\Program Files\AnyDesk\AnyDesk.exe" }
           
           cmd.exe /c "echo ${{ env.ANYDESK_PASS }} | `"$ad`" --set-password"
           
-          # Registry tweaks to force Windows Server to accept mobile touch inputs over virtual RDP layers
           $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
           Set-ItemProperty -Path $path -Name "TaskbarGlomLevel" -Value 0 -ErrorAction SilentlyContinue
-          
-          # Disables UI automation limits for touch injections
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesktopToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
           
           Start-Process -FilePath $ad -ArgumentList "--restart-service" -Wait
           Start-Sleep -Seconds 5
 
       - name: Clean and Hide Active Infrastructure Windows
         run: |
-          Write-Host "Clearing out topmost infrastructure host container windows..."
-          # Force terminates the window handler wrapper for the compute agent without stopping the background runner service
-          taskkill /IM "hosted-compute-agent.exe" /F /T 2>$null
-          Write-Host "Console layer purged successfully."
+          Write-Host "Safely minimizing active desktop console layout..."
+          # Emulates a native Windows shell command to safely minimize the active interface frame
+          (New-Object -ComObject Shell.Application).UndoMinimizeAll()
+          Start-Sleep -Seconds 1
+          $wsh = New-Object -ComObject WScript.Shell
+          # Sends Alt+Space then 'n' to minimize the active window natively without breaking process structures
+          $wsh.SendKeys("% n")
 
       - name: Optimize Resolution for Mobile Display
         run: |
