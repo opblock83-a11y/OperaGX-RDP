@@ -1,4 +1,4 @@
-name: Cloud PC + AnyDesk + Opera GX (1080p Direct ID Capture)
+name: OperaGX PC
 
 on:
   workflow_dispatch:
@@ -31,48 +31,51 @@ jobs:
               if (Test-Path "$userDesktop\$target") { Remove-Item "$userDesktop\$target" -Force -ErrorAction SilentlyContinue }
           }
 
-      - name: Set Up Standalone AnyDesk Directory
+      - name: Download and Force Install AnyDesk
         run: |
-          Write-Host "Deploying clean filesystem framework..."
-          $targetDir = "C:\Program Files (x86)\AnyDesk"
-          if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force }
-          
-          Write-Host "Fetching stable AnyDesk binary..."
           $url = "https://download.anydesk.com/AnyDesk.exe"
-          $targetPath = "$targetDir\AnyDesk.exe"
+          $dst = "$env:TEMP\AnyDesk.exe"
+          Invoke-WebRequest -Uri $url -OutFile $dst
           
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          Invoke-WebRequest -Uri $url -OutFile $targetPath -UserAgent "Mozilla/5.0"
+          $installDir = "C:\Program Files (x86)\AnyDesk"
+          if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }
 
-      - name: Configure Unattended Security Password & Connection Profile
+          Start-Process $dst -ArgumentList "--install `"$installDir`"", "--silent", "--start-with-win" -Wait
+          Start-Sleep -Seconds 5
+          Remove-Item $dst -ErrorAction SilentlyContinue
+
+      - name: Configure Unattended Access Password & Force Enable Touch Injection
         run: |
-          Write-Host "Injecting security credentials..."
-          $targetPath = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+          $ad = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+          if (-not (Test-Path $ad)) { $ad = "C:\Program Files\AnyDesk\AnyDesk.exe" }
           
-          echo "${{ env.ANYDESK_PASS }}" | & $targetPath --set-password
+          cmd.exe /c "echo ${{ env.ANYDESK_PASS }} | `"$ad`" --set-password"
           
+          # Force Windows to allow UI Automation and Touch Injection over RDP layers
           New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesktopToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
+          
+          # Unblock Touch Remote/Tablet Mode restrictions in Remote Desktop Services
+          $tsPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations"
+          New-ItemProperty -Path $tsPath -Name "TouchMode" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
+          New-ItemProperty -Path $tsPath -Name "EnableTouchInjection" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
           
           $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
           Set-ItemProperty -Path $path -Name "TaskbarGlomLevel" -Value 0 -ErrorAction SilentlyContinue
-
-      - name: Optimize Canvas Resolution for No-Scroll Mobile View
-        run: |
-          Write-Host "Forcing screen resolution calibration to 1920x1080 frame buffer..."
-          Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction SilentlyContinue
-
-      - name: Launch AnyDesk Core Service Thread
-        run: |
-          Write-Host "Starting AnyDesk application in backend context..."
-          $targetPath = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
-          Start-Process -FilePath $targetPath -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 10
+          
+          Start-Process -FilePath $ad -ArgumentList "--restart-service" -Wait
+          Start-Sleep -Seconds 5
 
       - name: Minimize Running Infrastructure Windows
         run: |
           Write-Host "Sending active command prompt windows to the taskbar tray..."
           $shell = New-Object -ComObject Shell.Application
           $shell.MinimizeAll()
+
+      - name: Optimize Resolution for Mobile Display
+        run: |
+          Write-Host "Forcing resolution calibration matrix to Maximum Display Canvas..."
+          # Upgraded from 1280x720 to 1920x1080 to prevent remote mobile scrolling layers
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction SilentlyContinue
 
       - name: Download & Force Consumer Build of Opera GX
         run: |
@@ -90,6 +93,7 @@ jobs:
               Move-Item -Path "$userDesktop\Opera GX.lnk" -Destination $publicDesktop -Force -ErrorAction SilentlyContinue
           }
           
+          Write-Host "Configuring explicit launcher shortcut with forced promo link and sidebar flags..."
           $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
           if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
           
@@ -99,21 +103,20 @@ jobs:
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --with-feature:gx-rewards=1"
           $Shortcut.Save()
 
-      - name: Fetch and Display AnyDesk Connection Credentials
+      - name: Fetch and Display AnyDesk Connection Address
         run: |
-          Write-Host "Querying process memory and standard output streams for ID assignment..."
-          $targetPath = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
-          $deviceId = "Not Found"
+          $confPath = "C:\ProgramData\AnyDesk\system.conf"
+          $cleanId = ""
           
-          # Poll the active binary, forcing stream redirection via Out-String to catch console output
-          for ($i = 1; $i -le 15; $i++) {
-              $idOutput = & $targetPath --get-id 2>&1 | Out-String
-              if ($idOutput -match '(\d{9,10})' -or $idOutput -trim -match '^\d+$') {
-                  $deviceId = $Matches[1].Trim()
-                  if (-not $deviceId) { $deviceId = $idOutput.Trim() }
-                  break
+          for ($i = 1; $i -le 10; $i++) {
+              if (Test-Path $confPath) {
+                  $content = Get-Content $confPath -Raw
+                  if ($content -match 'ad\.anynet\.id=(\d+)') {
+                      $cleanId = $Matches[1]
+                      break
+                  }
               }
-              Start-Sleep -Seconds 3
+              Start-Sleep -Seconds 4
           }
           
           $ESC = [char]27
@@ -123,10 +126,10 @@ jobs:
           $Reset = "$ESC[0m"
           
           Write-Host "${Green}====================================================${Reset}"
-          Write-Host "${Green}      ANYDESK CLOUD PC IS READY TO CONNECT          ${Reset}"
+          Write-Host "${Green}        ANYDESK CLOUD MACHINE IS READY TO CONNECT     ${Reset}"
           Write-Host "${Green}====================================================${Reset}"
-          Write-Host "${Yellow} ANYDESK ID      : ${Red}${deviceId}${Reset}"
-          Write-Host "${Yellow} ACCESS PASSWORD : ${Red}${{ env.ANYDESK_PASS }}${Reset}"
+          Write-Host "${Yellow} CONNECTION ID : ${Red}${cleanId}${Reset}"
+          Write-Host "${Yellow} PASSWORD      : ${Red}${{ env.ANYDESK_PASS }}${Reset}"
           Write-Host "${Green}====================================================${Reset}"
 
       - name: Keep alive
