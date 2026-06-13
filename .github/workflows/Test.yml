@@ -24,130 +24,54 @@ jobs:
       rdp_pass: Pass1234
 
     steps:
-      - name: Wipe Unnecessary Pre-Installed GitHub Apps & Shortcuts
+      - name: Disable Windows Firewall & Configure RDP
         run: |
-          Write-Host "Purging pre-installed desktop icons and non-essential software..."
-          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-          $userDesktop = "$env:USERPROFILE\Desktop"
+          # 1. Kill the Firewall (The most common cause of "Unable to connect")
+          Write-Host "Disabling Firewall to prevent connection drops..."
+          Set-NetFirewallProfile -Profile Public,Private,Domain -Enabled False
           
-          $targets = @("Unity Hub.lnk", "R 4.6.0.lnk", "Firefox.lnk", "Google Chrome.lnk", "Claim Rewards Here.lnk")
-          foreach ($target in $targets) {
-              if (Test-Path "$publicDesktop\$target") { Remove-Item "$publicDesktop\$target" -Force -ErrorAction SilentlyContinue }
-              if (Test-Path "$userDesktop\$target") { Remove-Item "$userDesktop\$target" -Force -ErrorAction SilentlyContinue }
-          }
-
-      - name: Optimize Resolution for Mobile Display
-        run: |
-          Write-Host "Forcing resolution calibration matrix..."
-          Set-DisplayResolution -Width 1280 -Height 720 -Force -ErrorAction SilentlyContinue
-          "RUNTIME_MINUTES=${{ inputs.runtime_minutes }}" | Out-File -Append $env:GITHUB_ENV
-
-      - name: Create and Configure Windows User Credentials
-        run: |
-          Write-Host "Creating custom local user profile..."
-          $Password = ConvertTo-SecureString "$env:rdp_pass" -AsPlainText -Force
-          
-          Remove-LocalUser -Name "$env:rdp_user" -ErrorAction SilentlyContinue
-          New-LocalUser -Name "$env:rdp_user" -Password $Password -Description "Cloud PC Access Account" -PasswordNeverExpires
-
-          Write-Host "Elevating user privileges to Remote Desktop groups..."
-          Add-LocalGroupMember -Group "Administrators" -Member "$env:rdp_user" -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "$env:rdp_user" -ErrorAction SilentlyContinue
-
-      - name: Enable Windows Remote Desktop (RDP) Services
-        run: |
-          Write-Host "Modifying registry layers to toggle RDP host features..."
+          # 2. Configure RDP
+          Write-Host "Enabling RDP and configuring security..."
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
-          
-          Write-Host "Starting and locking down Terminal Services..."
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-Service -Name "TermService" -StartupType Automatic
           Start-Service -Name "TermService" -ErrorAction SilentlyContinue
 
-      - name: Download & Force Consumer Build of Opera GX
+      - name: Setup User
         run: |
-          Write-Host "Fetching consumer-stable Opera GX Core..."
-          $url = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx"
-          $installer = "$env:TEMP\OperaGXSetup.exe"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          
-          Start-Process -FilePath $installer -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0" -Wait
-          Start-Sleep -Seconds 4
-          
-          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-          $userDesktop = "$env:USERPROFILE\Desktop"
-          
-          if (Test-Path "$userDesktop\Opera GX.lnk") { Remove-Item "$userDesktop\Opera GX.lnk" -Force -ErrorAction SilentlyContinue }
-          if (Test-Path "$publicDesktop\Opera GX.lnk") { Remove-Item "$publicDesktop\Opera GX.lnk" -Force -ErrorAction SilentlyContinue }
-          
-          $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
-          if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
-          
-          $WshShell = New-Object -ComObject WScript.Shell
-          $Shortcut = $WshShell.CreateShortcut("$publicDesktop\Opera GX Browser.lnk")
-          $Shortcut.TargetPath = $operaExe
-          $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --with-feature:gx-rewards=1"
-          $Shortcut.Save()
+          $Password = ConvertTo-SecureString "$env:rdp_pass" -AsPlainText -Force
+          Remove-LocalUser -Name "$env:rdp_user" -ErrorAction SilentlyContinue
+          New-LocalUser -Name "$env:rdp_user" -Password $Password -Description "Cloud PC" -PasswordNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "$env:rdp_user"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "$env:rdp_user"
 
-      - name: Trigger Custom promo link Layout Background
+      - name: Launch Bore TCP Tunnel
         run: |
-          Write-Host "Executing promotional browser instance..."
-          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-          Start-Process "$publicDesktop\Opera GX Browser.lnk"
-          Start-Sleep -Seconds 6
-
-      - name: Launch Token-Free Tunnel & Display Connection Endpoint
-        run: |
-          Write-Host "Downloading Bore TCP Tunnel Engine..."
           Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-pc-windows-msvc.zip" -OutFile "$env:TEMP\bore.zip"
           Expand-Archive -Path "$env:TEMP\bore.zip" -DestinationPath "$env:TEMP\bore" -Force
           
-          Write-Host "Initializing raw TCP tunnel via Bore..."
           $logFile = "$env:TEMP\bore.log"
-          
-          # Initialize background TCP tunnel to bore.pub
           Start-Process "$env:TEMP\bore\bore.exe" -ArgumentList "local 3389 --to bore.pub" -RedirectStandardOutput $logFile -NoNewWindow
           
-          Write-Host "Waiting for tunnel metrics..."
-          Start-Sleep -Seconds 12
+          Write-Host "Waiting 20 seconds for tunnel handshake..."
+          Start-Sleep -Seconds 20
           
           $LogContent = Get-Content $logFile
-          $CleanAddress = ""
+          $Address = ($LogContent | Select-String "bore.pub:(\d+)" | Select-Object -First 1).Matches.Value
           
-          foreach ($Line in $LogContent) {
-              if ($Line -match "bore.pub:(\d+)") {
-                  $CleanAddress = "bore.pub:" + $Matches[1].Trim()
-                  break
-              }
-          }
-          
-          if ($CleanAddress -ne "") {
-              $Esc = [char]27
-              $Cyan = "$Esc[36m"
-              $Yellow = "$Esc[33m"
-              $Green = "$Esc[32m"
-              $Reset = "$Esc[0m"
-
-              Write-Host ""
-              Write-Host "${Cyan}###########################################################################${Reset}"
-              Write-Host "${Yellow}🚨 ATTENTION: WINDOWS NATIVE RDP TUNNEL CONNECTION READY 🚨${Reset}"
-              Write-Host "👤 USERNAME: user" -ForegroundColor Yellow
-              Write-Host "🔒 PASSWORD: Pass1234" -ForegroundColor Yellow
-              Write-Host "###########################################################################${Reset}"
-              Write-Host "${Green}➡️ RDP COMPUTER / PC NAME ADDRESS: $CleanAddress${Reset}"
-              Write-Host "${Cyan}###########################################################################${Reset}"
-              Write-Host ""
+          if ($Address) {
+              Write-Host "`n#################################################################"
+              Write-Host "🚨 CONNECTION READY - USE MICROSOFT REMOTE DESKTOP APP 🚨"
+              Write-Host "PC NAME: $Address"
+              Write-Host "USER: user"
+              Write-Host "PASS: Pass1234"
+              Write-Host "#################################################################`n"
           } else {
-              Write-Warning "Tunnel initialization delayed. Inspecting raw log stream:"
-              Get-Content $logFile -ErrorAction SilentlyContinue
+              Write-Host "Tunnel did not initialize. Raw Log:"
+              Get-Content $logFile
           }
 
-      - name: Keep Alive Execution Loop
+      - name: Keep Alive Loop
         run: |
-          $mins = [int]$env:RUNTIME_MINUTES
-          $end = (Get-Date).AddMinutes($mins)
-          while ((Get-Date) -lt $end) {
-            Write-Host "Cloud PC Active Status | Heartbeat Signal Active | System Session Ends at: $($end.ToString('HH:mm:ss'))"
-            Start-Sleep -Seconds 60
-          }
+          $end = (Get-Date).AddMinutes(350)
+          while ((Get-Date) -lt $end) { Start-Sleep -Seconds 60 }
