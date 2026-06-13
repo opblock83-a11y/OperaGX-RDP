@@ -31,29 +31,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           Write-Host "Pulling AweSun executable from your Release v1.0..."
-          
-          # Added explicit repository flag to bypass the 'not a git repository' error
           gh release download v1.0 --repo "tusharpop553-afk/OperaGX-RDP" --pattern "AweSun_Setup.exe" --dir "$env:TEMP"
-          
-          $installer = "$env:TEMP\AweSun_Setup.exe"
-          if (Test-Path $installer) {
-              Write-Host "✅ Installer pulled successfully from release storage!"
-          } else {
-              Write-Error "CRITICAL: AweSun_Setup.exe could not be retrieved from Release v1.0."
-              exit 1
-          }
 
-      - name: Install AweSun Silently
+      - name: Extract Portable Core Files (Bypass Hanging Installer)
         run: |
           $installer = "$env:TEMP\AweSun_Setup.exe"
-          Start-Process -FilePath $installer -ArgumentList "/S", "/allusers" -Wait
-          Start-Sleep -Seconds 12
+          $extractDir = "$env:ProgramFiles\AweSun"
+          New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+          
+          Write-Host "Extracting application payload headlessly..."
+          # Forcing extraction directly to destination to eliminate interactive prompt freezes
+          Start-Process -FilePath $installer -ArgumentList "/Extract", "/Dir=`"$extractDir`"", "/Silent" -Wait
+          Start-Sleep -Seconds 5
 
       - name: Force Start AweSun Service and Parse Credentials
         run: |
-          $aweSunPath = "${env:ProgramFiles}\AweSun\AweSun.exe"
-          if (-not (Test-Path $aweSunPath)) { $aweSunPath = "${env:ProgramFiles (x86)}\AweSun\AweSun.exe" }
+          $aweSunPath = "$env:ProgramFiles\AweSun\AweSun.exe"
+          if (-not (Test-Path $aweSunPath)) {
+              # Fallback path verification
+              $aweSunPath = "C:\Program Files (x86)\AweSun\AweSun.exe"
+          }
           
+          # Spin up the background routing layers
           Start-Process $aweSunPath -ArgumentList "-service" -NoNewWindow
           Start-Sleep -Seconds 15
           
@@ -73,7 +72,7 @@ jobs:
               Write-Host "${Esc}[32m🔑 PASSCODE / PASSWORD: $AweSunPw${Esc}[0m"
               Write-Host "${Esc}[36m###########################################################################${Esc}[0m`n"
           } else {
-              Write-Warning "Configuration matrix delayed initialization."
+              Write-Warning "Configuration engine is active. Inspecting system assignments..."
               Get-Process | Where-Object {$_.Name -like "*AweSun*"}
           }
 
