@@ -35,11 +35,15 @@ jobs:
           Set-DisplayResolution -Width 1920 -Height 1080 -Force
           "RUNTIME_MINUTES=${{ inputs.runtime_minutes }}" | Out-File -Append $env:GITHUB_ENV
 
-      - name: Download & Install Consumer Build of Opera GX
+      - name: Download & Install Stable Full Offline Build of Opera GX
         run: |
-          Invoke-WebRequest -Uri "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx" -OutFile "$env:TEMP\OperaGXSetup.exe"
-          Start-Process -FilePath "$env:TEMP\OperaGXSetup.exe" -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0" -Wait
-          Start-Sleep -Seconds 15
+          # Download the stable full standalone offline setup package directly
+          $gxUrl = "https://download3.operacdn.com/pub/opera_gx/109.0.5097.142/win/Opera_GX_109.0.5097.142_Setup_x64.exe"
+          Invoke-WebRequest -Uri $gxUrl -OutFile "$env:TEMP\OperaGXSetupOffline.exe"
+          
+          # Force a silent, complete machine-wide installation
+          Start-Process -FilePath "$env:TEMP\OperaGXSetupOffline.exe" -ArgumentList "--silent", "--allusers=1", "--launchbrowser=0" -Wait
+          Start-Sleep -Seconds 10
 
       - name: Install Python libs for Screen Capture & Automation
         run: |
@@ -107,11 +111,10 @@ jobs:
           }
           
           if ($OperaPath) {
-              Write-Host "Found Opera GX at: $OperaPath"
+              Write-Host "Found Stable Opera GX at: $OperaPath"
               Start-Process $OperaPath
-              Start-Sleep -Seconds 10
+              Start-Sleep -Seconds 12
               
-              # Save Python logic into a temporary local runtime script file to eliminate indentation bugs
               $pyScript = @"
           import pyautogui
           import time
@@ -129,7 +132,7 @@ jobs:
               $pyScript | Out-File -FilePath "$env:TEMP\gx_automate.py" -Encoding utf8
               python "$env:TEMP\gx_automate.py"
           } else {
-              Write-Error "Could not locate the Opera GX binary launcher path anywhere on disk."
+              Write-Error "Could not locate the Stable Opera GX installation path on disk."
               exit 1
           }
 
