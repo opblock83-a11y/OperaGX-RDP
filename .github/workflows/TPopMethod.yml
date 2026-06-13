@@ -1,4 +1,4 @@
-name: Cloud PC + Web Browser Link + Opera GX (Passwordless Fix)
+name: Cloud PC + Web Browser Link + Opera GX (Stable Legacy Engine)
 
 on:
   workflow_dispatch:
@@ -15,6 +15,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 190
     env:
+      VNC_PASS: password
       RUNTIME_MINUTES: 180
 
     steps:
@@ -27,48 +28,27 @@ jobs:
       - name: Force Full HD Resolution
         run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
 
-      - name: Install and Configure UltraVNC Server (Auth Disabled)
+      - name: Install and Initialize Legacy TightVNC Engine
         run: |
-          # Install UltraVNC cleanly using Chocolatey
-          choco install ultravnc -y --no-progress
+          # Download stable standalone binary bundle
+          Invoke-WebRequest -Uri "https://www.tightvnc.com/download/1.3.10/tightvnc-1.3.10_x86_development.zip" -OutFile "legacy_vnc.zip"
+          Expand-Archive -Path "legacy_vnc.zip" -DestinationPath "C:\TightVNC" -Force
           
-          $uvncDir = "C:\Program Files\uvnc bvba\UltraVNC"
-          $iniPath = "$uvncDir\ultravnc.ini"
+          # Manually construct the standard configuration tree structure 
+          $RegPath = "HKCU:\Software\ORL\WinVNC3"
+          if (-not (Test-Path $RegPath)) { New-Item -Path "HKCU:\Software\ORL" -Name "WinVNC3" -Force }
           
-          # AuthRequired=0 completely turns off the password prompt barrier
-          $iniContent = @"
-          [Permissions]
-          [UltraVNC]
-          AuthRequired=0
-          CheckServerPort=1
-          PortNumber=5900
-          HttpPortNumber=5800
-          AllowLoopback=1
-          AcceptKeepAlive=1
-          LoopbackOnly=0
-          QuerySetting=2
-          QueryTimeout=10
-          QueryAccept=0
-          QueryIfNoLogon=1
-          InputsEnabled=1
-          BlankMonitorEnabled=0
-          [Server]
-          Connection=1
-          "@
+          # Inject the static 8-byte obfuscated key for the word "password"
+          [byte[]]$passHex = 0x2c, 0x7e, 0xe2, 0xbc, 0x7e, 0x2c, 0x22, 0x9e
+          Set-ItemProperty -Path $RegPath -Name "Password" -Value $passHex -Type Binary
           
-          # Write the configuration file
-          Out-File -FilePath $iniPath -InputObject $iniContent -Encoding ascii -Force
-          
-          # Register and launch the service clean
-          Start-Process "$uvncDir\winvnc.exe" -ArgumentList "-install" -Wait
-          Start-Process "$uvncDir\winvnc.exe" -ArgumentList "-startservice" -Wait
-          
-          Write-Host "UltraVNC Server successfully initialized in Open Auth Mode."
+          # Spin up the background desktop capture host loop
+          Start-Process "C:\TightVNC\tightvnc-1.3.10_x86_development\WinVNC.exe" -ArgumentList "-run"
+          Write-Host "Legacy Capture Host Online."
 
       - name: Download & Force Consumer Build of Opera GX
         run: |
-          $Url = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx"
-          Invoke-WebRequest -Uri $Url -OutFile "$env:TEMP\OperaGXSetup.exe"
+          Invoke-WebRequest -Uri "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx" -OutFile "$env:TEMP\OperaGXSetup.exe"
           Start-Process -FilePath "$env:TEMP\OperaGXSetup.exe" -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0" -Wait
 
       - name: Deploy Web Interface & Dynamic Gateway Engines
@@ -100,13 +80,12 @@ jobs:
           $RawLink = (Get-Content $LogFile -Raw) | Select-String -Pattern 'https://[a-zA-Z0-9-]+\.loca\.lt' | Select-Object -ExpandProperty Matches | Select-Object -ExpandProperty Value -First 1
           
           if ($RawLink) {
-              # Since auth is disabled, the direct URL layout drops straight to your desktop layout seamlessly
-              $FinalUrl = $RawLink + "/vnc.html?autoconnect=true"
+              $FinalUrl = $RawLink + "/vnc.html?autoconnect=true&password=" + "${{ env.VNC_PASS }}"
               Write-Host "===================================================="
               Write-Host "      WEB-BROWSER CLOUD PC IS READY TO CONNECT      "
               Write-Host "===================================================="
               Write-Host " CLICK LINK: $FinalUrl"
-              Write-Host " SECURITY  : Open Authentication Active (No Password)"
+              Write-Host " PASSWORD  : ${{ env.VNC_PASS }}"
               Write-Host "===================================================="
           } else {
               Write-Error "CRITICAL: Dynamic gateway assignment timed out."
