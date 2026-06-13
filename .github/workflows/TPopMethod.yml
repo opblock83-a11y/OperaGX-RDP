@@ -1,10 +1,10 @@
-name: Cloud PC + Token-Free RDP Tunnel (Pagekite) + Opera GX
+name: Cloud PC + AweSun Dedicated Server Connection
 
 on:
   workflow_dispatch:
     inputs:
       runtime_minutes:
-        description: "Runtime in minutes (max 360)"
+        description: "Runtime in minutes"
         required: false
         default: "355"
 
@@ -19,111 +19,51 @@ jobs:
   desktop:
     runs-on: windows-latest
     timeout-minutes: 370
-    env:
-      rdp_user: user
-      rdp_pass: Pass1234
-
     steps:
-      - name: Wipe Unnecessary Pre-Installed GitHub Apps & Shortcuts
+      - name: Optimize System and Disable Firewall
         run: |
-          Write-Host "Purging pre-installed desktop icons and non-essential software..."
-          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-          $userDesktop = "$env:USERPROFILE\Desktop"
-          
-          $targets = @("Unity Hub.lnk", "R 4.6.0.lnk", "Firefox.lnk", "Google Chrome.lnk", "Claim Rewards Here.lnk")
-          foreach ($target in $targets) {
-              if (Test-Path "$publicDesktop\$target") { Remove-Item "$publicDesktop\$target" -Force -ErrorAction SilentlyContinue }
-              if (Test-Path "$userDesktop\$target") { Remove-Item "$userDesktop\$target" -Force -ErrorAction SilentlyContinue }
-          }
-
-      - name: Optimize Resolution for Mobile Display
-        run: |
-          Write-Host "Forcing resolution calibration matrix..."
-          Set-DisplayResolution -Width 1280 -Height 720 -Force -ErrorAction SilentlyContinue
-          "RUNTIME_MINUTES=${{ inputs.runtime_minutes }}" | Out-File -Append $env:GITHUB_ENV
-
-      - name: Create and Configure Windows User Credentials
-        run: |
-          Write-Host "Creating custom local user profile..."
-          $Password = ConvertTo-SecureString "$env:rdp_pass" -AsPlainText -Force
-          
-          Remove-LocalUser -Name "$env:rdp_user" -ErrorAction SilentlyContinue
-          New-LocalUser -Name "$env:rdp_user" -Password $Password -Description "Cloud PC Access Account" -PasswordNeverExpires
-
-          Write-Host "Elevating user privileges to Remote Desktop groups..."
-          Add-LocalGroupMember -Group "Administrators" -Member "$env:rdp_user" -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "$env:rdp_user" -ErrorAction SilentlyContinue
-
-      - name: Enable Windows Remote Desktop (RDP) Services
-        run: |
-          Write-Host "Modifying registry layers to toggle RDP host features..."
+          Write-Host "Prepping environment layers..."
+          Set-NetFirewallProfile -Profile Public,Private,Domain -Enabled False
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
-          
-          Write-Host "Starting and locking down Terminal Services..."
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-Service -Name "TermService" -StartupType Automatic
           Start-Service -Name "TermService" -ErrorAction SilentlyContinue
 
-      - name: Download & Force Consumer Build of Opera GX
+      - name: Download and Silently Install AweSun
         run: |
-          Write-Host "Fetching consumer-stable Opera GX Core..."
-          $url = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx"
-          $installer = "$env:TEMP\OperaGXSetup.exe"
+          Write-Host "Fetching official AweSun deployment package..."
+          $url = "https://download.awesun.com/windows/AweSun_Setup.exe"
+          $installer = "$env:TEMP\AweSun_Setup.exe"
           Invoke-WebRequest -Uri $url -OutFile $installer
           
-          Start-Process -FilePath $installer -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0" -Wait
-          Start-Sleep -Seconds 4
-          
-          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-          $userDesktop = "$env:USERPROFILE\Desktop"
-          
-          if (Test-Path "$userDesktop\Opera GX.lnk") { Remove-Item "$userDesktop\Opera GX.lnk" -Force -ErrorAction SilentlyContinue }
-          if (Test-Path "$publicDesktop\Opera GX.lnk") { Remove-Item "$publicDesktop\Opera GX.lnk" -Force -ErrorAction SilentlyContinue }
-          
-          $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
-          if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
-          
-          $WshShell = New-Object -ComObject WScript.Shell
-          $Shortcut = $WshShell.CreateShortcut("$publicDesktop\Opera GX Browser.lnk")
-          $Shortcut.TargetPath = $operaExe
-          $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --with-feature:gx-rewards=1"
-          $Shortcut.Save()
+          Write-Host "Executing silent structural installation..."
+          # Running with flags to bypass interactive setup windows entirely
+          Start-Process -FilePath $installer -ArgumentList "/S", "/allusers" -Wait
+          Start-Sleep -Seconds 10
 
-      - name: Trigger Custom promo link Layout Background
+      - name: Force Start AweSun Service and Parse Credentials
         run: |
-          Write-Host "Executing promotional browser instance..."
-          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-          Start-Process "$publicDesktop\Opera GX Browser.lnk"
-          Start-Sleep -Seconds 6
-
-      - name: Launch Token-Free Tunnel & Display Connection Endpoint
-        run: |
-          Write-Host "Downloading Pagekite Core Engine..."
-          $pkPath = "$env:TEMP\pagekite.py"
-          Invoke-WebRequest -Uri "https://pagekite.net/pk/pagekite.py" -OutFile $pkPath
-          
-          Write-Host "Spawning clean, token-free raw TCP tunnel over port 3389..."
-          $logFile = "$env:TEMP\pagekite.log"
-          
-          # Initialize background dynamic tunnel mapping local RDP port
-          Start-Process python -ArgumentList "$pkPath --clean --is3389=raw:3389" -RedirectStandardOutput $logFile -NoNewWindow
-          
-          Write-Host "Gathering routing metrics..."
-          Start-Sleep -Seconds 12
-          
-          $LogContent = Get-Content $logFile
-          $CleanAddress = ""
-          
-          foreach ($Line in $LogContent) {
-              if ($Line -match "as\s+([^ ]+\.pagekite\.me:\d+)") {
-                  $CleanAddress = $Matches[1].Trim()
-                  break
-              }
+          Write-Host "Waking up AweSun background host engine..."
+          $aweSunPath = "${env:ProgramFiles}\AweSun\AweSun.exe"
+          if (-not (Test-Path $aweSunPath)) {
+              $aweSunPath = "${env:ProgramFiles (x86)}\AweSun\AweSun.exe"
           }
           
-          if ($CleanAddress -ne "") {
-              # ANSI Escape Sequences for high-visibility styling
+          # Initialize the service explicitly
+          Start-Process $aweSunPath -ArgumentList "-service" -NoNewWindow
+          Start-Sleep -Seconds 15
+          
+          Write-Host "Extracting connection metrics from configuration layer..."
+          $configPath = "$env:AppData\AweSun\config.ini"
+          if (-not (Test-Path $configPath)) {
+              $configPath = "C:\ProgramData\AweSun\config.ini"
+          }
+          
+          # Reading the configuration to grab your ID and Password automatically
+          if (Test-Path $configPath) {
+              $config = Get-Content $configPath
+              $AweSunID = ($config | Select-String "id=").Line -replace "id=", ""
+              $AweSunPw = ($config | Select-String "pwd=").Line -replace "pwd=", ""
+              
+              # ANSI Escape Sequences for high-visibility terminal highlights
               $Esc = [char]27
               $Cyan = "$Esc[36m"
               $Yellow = "$Esc[33m"
@@ -132,23 +72,23 @@ jobs:
 
               Write-Host ""
               Write-Host "${Cyan}###########################################################################${Reset}"
-              Write-Host "${Yellow}🚨 ATTENTION: WINDOWS NATIVE RDP TUNNEL CONNECTION READY 🚨${Reset}"
-              Write-Host "👤 USERNAME: user" -ForegroundColor Yellow
-              Write-Host "🔒 PASSWORD: Pass1234" -ForegroundColor Yellow
+              Write-Host "${Yellow}🚨 DEDICATED AWESUN REMOTE COMPUTER SESSION READY 🚨${Reset}"
+              Write-Host "📱 Open the AweSun App on your mobile device or computer to connect."
               Write-Host "###########################################################################${Reset}"
-              Write-Host "${Green}➡️ RDP COMPUTER / PC NAME ADDRESS: $CleanAddress${Reset}"
+              Write-Host "${Green}🆔 AWESUN DEVICE ID: $AweSunID${Reset}"
+              Write-Host "${Green}🔑 PASSCODE / PASSWORD: $AweSunPw${Reset}"
               Write-Host "${Cyan}###########################################################################${Reset}"
               Write-Host ""
           } else {
-              Write-Warning "Tunnel parsing delayed. Pulling diagnostic fallback logs..."
-              Get-Content $logFile -ErrorAction SilentlyContinue
+              Write-Warning "Configuration matrix delayed initialization. Checking process state..."
+              Get-Process | Where-Object {$_.Name -like "*AweSun*"}
           }
 
-      - name: Keep Alive Execution Loop
+      - name: Session Keep Alive Loop
         run: |
-          $mins = [int]$env:RUNTIME_MINUTES
+          $mins = [int]"${{ inputs.runtime_minutes }}"
           $end = (Get-Date).AddMinutes($mins)
           while ((Get-Date) -lt $end) {
-            Write-Host "Cloud PC Active Status | Heartbeat Signal Active | System Session Ends at: $($end.ToString('HH:mm:ss'))"
+            Write-Host "AweSun Server Stream Active | Heartbeat Signal Live"
             Start-Sleep -Seconds 60
           }
