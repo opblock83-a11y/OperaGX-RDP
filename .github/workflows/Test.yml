@@ -1,44 +1,150 @@
-name: Cloud PC + Stable RDP Tunnel + Opera GX
+name: Cloud PC + Native RDP Tunnel + Opera GX
 
 on:
   workflow_dispatch:
     inputs:
       runtime_minutes:
-        description: "Runtime in minutes"
+        description: "Runtime in minutes (max 360)"
         required: false
         default: "355"
       ngrok_token:
-        description: "Your Ngrok Auth Token (Get from dashboard.ngrok.com)"
+        description: "Your Ngrok Auth Token (Paste from dashboard.ngrok.com)"
         required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
 
 jobs:
   desktop:
     runs-on: windows-latest
     timeout-minutes: 370
+    env:
+      rdp_user: user
+      rdp_pass: Pass1234
+
     steps:
-      - name: Disable Firewall & Enable RDP
+      - name: Wipe Unnecessary Pre-Installed GitHub Apps & Shortcuts
         run: |
-          Set-NetFirewallProfile -Profile Public,Private,Domain -Enabled False
+          Write-Host "Purging pre-installed desktop icons and non-essential software..."
+          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
+          $userDesktop = "$env:USERPROFILE\Desktop"
+          
+          $targets = @("Unity Hub.lnk", "R 4.6.0.lnk", "Firefox.lnk", "Google Chrome.lnk", "Claim Rewards Here.lnk")
+          foreach ($target in $targets) {
+              if (Test-Path "$publicDesktop\$target") { Remove-Item "$publicDesktop\$target" -Force -ErrorAction SilentlyContinue }
+              if (Test-Path "$userDesktop\$target") { Remove-Item "$userDesktop\$target" -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Optimize Resolution for Mobile Display
+        run: |
+          Write-Host "Forcing resolution calibration matrix..."
+          Set-DisplayResolution -Width 1280 -Height 720 -Force -ErrorAction SilentlyContinue
+          "RUNTIME_MINUTES=${{ inputs.runtime_minutes }}" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Create and Configure Windows User Credentials
+        run: |
+          Write-Host "Creating custom local user profile..."
+          $Password = ConvertTo-SecureString "$env:rdp_pass" -AsPlainText -Force
+          
+          Remove-LocalUser -Name "$env:rdp_user" -ErrorAction SilentlyContinue
+          New-LocalUser -Name "$env:rdp_user" -Password $Password -Description "Cloud PC Access Account" -CreateNoPassword -PasswordNeverExpires
+
+          Write-Host "Elevating user privileges to Remote Desktop groups..."
+          Add-LocalGroupMember -Group "Administrators" -Member "$env:rdp_user" -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "$env:rdp_user" -ErrorAction SilentlyContinue
+
+      - name: Enable Windows Remote Desktop (RDP) Services
+        run: |
+          Write-Host "Modifying registry layers to toggle RDP host features..."
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+          
+          Write-Host "Starting and locking down Terminal Services..."
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-Service -Name "TermService" -StartupType Automatic
           Start-Service -Name "TermService" -ErrorAction SilentlyContinue
 
-      - name: Setup User
+      - name: Install Ngrok & Establish Tunnel Network
         run: |
-          $Password = ConvertTo-SecureString "Pass1234" -AsPlainText -Force
-          Remove-LocalUser -Name "user" -ErrorAction SilentlyContinue
-          New-LocalUser -Name "user" -Password $Password -Description "Cloud PC" -PasswordNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "user"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "user"
+          Write-Host "Installing network tunnel routing engine..."
+          choco install ngrok --yes
+          Start-Sleep -Seconds 3
+          
+          Write-Host "Authenticating tunnel framework..."
+          ngrok authtoken "${{ inputs.ngrok_token }}"
+          
+          Write-Host "Spawning background port forward tunnel over RDP port 3389..."
+          Start-Process -FilePath "ngrok" -ArgumentList "tcp", "3389", "--log=stdout" -NoNewWindow
 
-      - name: Start Ngrok Tunnel
-        uses: ngrok/ngrok-action@v1
-        with:
-          token: ${{ inputs.ngrok_token }}
-          addr: 3389
-          proto: tcp
-
-      - name: Keep Alive
+      - name: Download & Force Consumer Build of Opera GX
         run: |
-          Write-Host "✅ Connection is live via Ngrok TCP. Check the Ngrok UI link above."
-          Start-Sleep -Seconds 21000
+          Write-Host "Fetching consumer-stable Opera GX Core..."
+          $url = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx"
+          $installer = "$env:TEMP\OperaGXSetup.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          
+          Start-Process -FilePath $installer -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0" -Wait
+          Start-Sleep -Seconds 4
+          
+          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
+          $userDesktop = "$env:USERPROFILE\Desktop"
+          
+          if (Test-Path "$userDesktop\Opera GX.lnk") { Remove-Item "$userDesktop\Opera GX.lnk" -Force -ErrorAction SilentlyContinue }
+          if (Test-Path "$publicDesktop\Opera GX.lnk") { Remove-Item "$publicDesktop\Opera GX.lnk" -Force -ErrorAction SilentlyContinue }
+          
+          $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
+          if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
+          
+          $WshShell = New-Object -ComObject WScript.Shell
+          $Shortcut = $WshShell.CreateShortcut("$publicDesktop\Opera GX Browser.lnk")
+          $Shortcut.TargetPath = $operaExe
+          $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --with-feature:gx-rewards=1"
+          $Shortcut.Save()
+
+      - name: Trigger Custom promo link Layout Background
+        run: |
+          Write-Host "Executing promotional browser instance..."
+          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
+          Start-Process "$publicDesktop\Opera GX Browser.lnk"
+          Start-Sleep -Seconds 6
+
+      - name: Fetch and Display Live Connection Endpoint
+        run: |
+          Start-Sleep -Seconds 2
+          Write-Host "Querying secure endpoint matrix..."
+          
+          $Response = Invoke-WebRequest -Uri "http://127.0.0.1:4040/api/tunnels" -UseBasicParsing
+          $JObject = ConvertFrom-Json $Response.Content
+          $PublicUrl = $JObject.tunnels[0].public_url
+          
+          $CleanAddress = $PublicUrl -replace "tcp://", ""
+          
+          # ANSI Escape Sequences for final terminal connection display
+          $Esc = [char]27
+          $Cyan = "$Esc[36m"
+          $Yellow = "$Esc[33m"
+          $Green = "$Esc[32m"
+          $Reset = "$Esc[0m"
+
+          Write-Host ""
+          Write-Host "${Cyan}###########################################################################${Reset}"
+          Write-Host "${Yellow}🚨 ATTENTION: WINDOWS NATIVE RDP TUNNEL CONNECTION READY 🚨${Reset}"
+          Write-Host "👤 USERNAME: user" -ForegroundColor Yellow
+          Write-Host "🔒 PASSWORD: Pass1234" -ForegroundColor Yellow
+          Write-Host "###########################################################################${Reset}"
+          Write-Host "${Green}➡️ RDP COMPUTER / PC NAME ADDRESS: $CleanAddress${Reset}"
+          Write-Host "${Cyan}###########################################################################${Reset}"
+          Write-Host ""
+
+      - name: Keep Alive Execution Loop
+        run: |
+          $mins = [int]$env:RUNTIME_MINUTES
+          $end = (Get-Date).AddMinutes($mins)
+          while ((Get-Date) -lt $end) {
+            Write-Host "Cloud PC Active Status | Heartbeat Signal Active | System Session Ends at: $($end.ToString('HH:mm:ss'))"
+            Start-Sleep -Seconds 60
+          }
