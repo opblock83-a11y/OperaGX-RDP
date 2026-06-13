@@ -51,12 +51,13 @@ jobs:
           $Password = ConvertTo-SecureString "$env:rdp_pass" -AsPlainText -Force
           
           Remove-LocalUser -Name "$env:rdp_user" -ErrorAction SilentlyContinue
-          New-LocalUser -Name "$env:rdp_user" -Password $Password -Description "Cloud PC Access Account" -CreateNoPassword -PasswordNeverExpires
+          # Removed -CreateNoPassword below
+          New-LocalUser -Name "$env:rdp_user" -Password $Password -Description "Cloud PC Access Account" -PasswordNeverExpires
 
           Write-Host "Elevating user privileges to Remote Desktop groups..."
           Add-LocalGroupMember -Group "Administrators" -Member "$env:rdp_user" -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "$env:rdp_user" -ErrorAction SilentlyContinue
-
+          
       - name: Enable Windows Remote Desktop (RDP) Services
         run: |
           Write-Host "Modifying registry layers to toggle RDP host features..."
