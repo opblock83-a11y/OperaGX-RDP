@@ -94,42 +94,52 @@ jobs:
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --with-feature:gx-rewards=1"
           $Shortcut.Save()
 
-      - name: Launch Components and Force RustDesk Always On Top
+      - name: Launch Components, Push Opera to Tray, and Lock RustDesk on Top
         run: |
           # 1. Fire up RustDesk
           $rdExe = "C:\Program Files\RustDesk\rustdesk.exe"
           Start-Process -FilePath $rdExe -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 3
 
-          # 2. Launch Opera GX cleanly right after
+          # 2. Launch Opera GX using your shortcut setup
           $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
           Start-Process "$publicDesktop\Opera GX Browser.lnk"
-          Start-Sleep -Seconds 6
+          Start-Sleep -Seconds 5
 
-          # 3. Target the active RustDesk window handle from process memory and pin it
-          Write-Host "Pinning RustDesk layout to the topmost visual z-index layer..."
+          # 3. Load user32 API signatures for window adjustments
           $signature = @'
           [DllImport("user32.dll", SetLastError = true)]
           [return: MarshalAs(UnmanagedType.Bool)]
           public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+          
+          [DllImport("user32.dll")]
+          public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
           '@
-          $win32 = Add-Type -MemberDefinition $signature -Name "TopMostUtil" -Namespace "Win32" -PassThru
-          
-          # Query via active process object structure directly to circumvent dynamic class tags
-          $hwnd = [IntPtr]::Zero
-          $rdProcess = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
-          
-          if ($rdProcess) {
-              $hwnd = $rdProcess.MainWindowHandle
+          $win32 = Add-Type -MemberDefinition $signature -Name "WindowLayerUtil" -Namespace "Win32" -PassThru
+
+          # 4. Target and explicitly minimize Opera GX window to clear the view
+          Write-Host "Tucking Opera GX away into the taskbar..."
+          $operaProcesses = Get-Process -Name "opera" -ErrorAction SilentlyContinue
+          foreach ($p in $operaProcesses) {
+              if ($p.MainWindowHandle -ne [IntPtr]::Zero) {
+                  $win32::ShowWindowAsync($p.MainWindowHandle, 2) | Out-Null # 2 = SW_MINIMIZE
+              }
           }
-          
-          if ($hwnd -and $hwnd -ne [IntPtr]::Zero) {
-              # -1 pins window to top-most layer; 0x0001 | 0x0002 keeps original layout size and coordinates
-              $win32::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x0001 -bor 0x0002) | Out-Null
-              Write-Host "RustDesk successfully locked on top of the browser window display layout."
-          } else {
-              Write-Warning "Could not dynamically trace the RustDesk handle from engine process memory."
+
+          # 5. Run a persistence loop for 10 seconds forcing RustDesk to stay over anything else
+          Write-Host "Engaging persistent topmost focus lock for RustDesk window..."
+          for ($i = 0; $i -lt 10; $i++) {
+              $rdProcess = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+              if ($rdProcess) {
+                  $hwnd = $rdProcess.MainWindowHandle
+                  if ($hwnd -and $hwnd -ne [IntPtr]::Zero) {
+                      # HWND_TOPMOST (-1) status refresh
+                      $win32::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x0001 -bor 0x0002) | Out-Null
+                  }
+              }
+              Start-Sleep -Seconds 1
           }
+          Write-Host "Focus sequence complete."
 
       - name: Hide Host Agent Window ONLY (Targeted Minimization)
         run: |
