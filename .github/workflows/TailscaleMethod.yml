@@ -29,23 +29,13 @@ jobs:
       RDP_PASS: "Pass1234"
 
     steps:
-      - name: Force Hardware Portrait Display Resolution for Mobile
-        run: |
-          Write-Host "Injecting explicit vertical dimension constraints into RDP engine..."
-          $RdpPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
-          New-ItemProperty -Path $RdpPath -Name "DefaultTargetWidth" -PropertyType DWord -Value 1080 -Force -ErrorAction SilentlyContinue
-          New-ItemProperty -Path $RdpPath -Name "DefaultTargetHeight" -PropertyType DWord -Value 1920 -Force -ErrorAction SilentlyContinue
-          
-          # Also set a fall-back display resolution via display layout subsystem
-          Set-DisplayResolution -Width 1080 -Height 1920 -Force -ErrorAction SilentlyContinue
-
       - name: Wipe Unnecessary Pre-Installed GitHub Apps & Shortcuts
         run: |
           $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
           $targets = @("Unity Hub.lnk", "R 4.6.0.lnk", "Firefox.lnk", "Google Chrome.lnk", "Claim Rewards Here.lnk")
           foreach ($target in $targets) { Remove-Item "$publicDesktop\$target" -Force -ErrorAction SilentlyContinue }
 
-      - name: Download & Force Consumer Build of Opera GX
+      - name: Download, Pre-Configure Zoom & Force Install Opera GX
         run: |
           Write-Host "Fetching consumer-stable Opera GX Core..."
           $url = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx"
@@ -61,6 +51,20 @@ jobs:
               Move-Item -Path "$userDesktop\Opera GX.lnk" -Destination $publicDesktop -Force -ErrorAction SilentlyContinue
           }
           
+          # Injecting default profile settings to force the browser zoom layer to 65%
+          $operaProfileDir = "$env:AppData\Opera Software\Opera GX Stable"
+          if (-not (Test-Path $operaProfileDir)) { New-Item -ItemType Directory -Path $operaProfileDir -Force | Out-Null }
+          
+          $prefFile = "$operaProfileDir\Preferences"
+          $prefJson = @{
+              "partition" = @{
+                  "default_zoom_level" = @{
+                      "value" = -2.22  # Maps to 65% zoom scaling factor in Chromium engines
+                  }
+              }
+          }
+          $prefJson | ConvertTo-Json -Depth 10 | Out-File -FilePath $prefFile -Encoding utf8 -Force
+
           Write-Host "Configuring explicit launcher shortcut with forced promo link and sidebar flags..."
           $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
           if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
