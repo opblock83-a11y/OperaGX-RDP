@@ -8,6 +8,11 @@ on:
       ts_api_key:         { description: "Tailscale API key", required: true }
       runtime_minutes:    { description: "Runtime (max 360)", required: false, default: "355" }
 
+# This block automatically terminates previous active runs of this exact workflow when a new one starts
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   actions: write
@@ -36,28 +41,44 @@ jobs:
 
       - name: Download, Install & Force-Launch Opera GX (Bypassing Welcome Screens)
         run: |
-          # Download setup file
           Invoke-WebRequest -Uri "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx" -OutFile "$env:TEMP\OperaGXSetup.exe"
           
           Write-Host "Running unattended browser deployment..."
           Start-Process -FilePath "$env:TEMP\OperaGXSetup.exe" -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0", "--skip-setup-screens=1" -Wait
           Start-Sleep -Seconds 5
 
-          # Locate installed browser launcher
-          $gxPath1 = "$env:ProgramFiles\Opera GX\launcher.exe"
-          $gxPath2 = "$env:ProgramFiles(x86)\Opera GX\launcher.exe"
-          $gxPath3 = "$env:LocalAppData\Programs\Opera GX\launcher.exe"
+          $paths = @(
+              "$env:ProgramFiles\Opera GX\launcher.exe",
+              "$env:ProgramFiles(x86)\Opera GX\launcher.exe",
+              "$env:ProgramFiles\Opera\launcher.exe",
+              "$env:ProgramFiles(x86)\Opera\launcher.exe",
+              "$env:LocalAppData\Programs\Opera GX\launcher.exe"
+          )
 
-          if (Test-Path $gxPath1) { $launcher = $gxPath1 }
-          elseif (Test-Path $gxPath2) { $launcher = $gxPath2 }
-          else { $launcher = $gxPath3 }
+          $launcher = $null
+          foreach ($p in $paths) {
+              if (Test-Path $p) {
+                  $launcher = $p
+                  break
+              }
+          }
 
-          if (Test-Path $launcher) {
-              Write-Host "Launching Opera GX directly to Forsaken destination..."
-              # Passing the corrected destination alongside flags to crush initial greeting layouts
-              Start-Process -FilePath $launcher -ArgumentList "https://www.opera.com/gx/forsaken", "--no-first-run", "--no-welcome", "--disable-features=UpgradeToGxl"
+          if ($launcher) {
+              Write-Host "Found Opera GX launcher at: $launcher"
+              
+              $args = @(
+                  "https://www.opera.com/gx/forsaken",
+                  "--no-first-run",
+                  "--no-welcome",
+                  "--no-default-browser-check",
+                  "--guest",
+                  "--disable-features=UpgradeToGxl"
+              )
+              
+              Start-Process -FilePath $launcher -ArgumentList $args
           } else {
-              Write-Warning "Opera GX launcher path could not be mapped statically."
+              Write-Error "CRITICAL ERROR: Unable to detect Opera GX system binary paths dynamically."
+              exit 1
           }
 
       - name: Parse Runtime Requirements
@@ -124,4 +145,14 @@ jobs:
           while ((Get-Date) -lt $end) {
             Write-Host ("Tailscale/RDP Active Engine | Heartbeat " + (Get-Date).ToString("HH:mm:ss") + " ends at " + $end.ToString("HH:mm:ss"))
             Start-Sleep -Seconds 60
+          }
+
+      # This runs no matter how the workflow stops (cancelled, timed out, completed) to clean up Tailscale
+      - name: Disconnect Tailscale Node Safely
+        if: always()
+        run: |
+          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          if (Test-Path $ts) {
+              Write-Host "Disconnecting machine and logging out of tailnet..."
+              & $ts logout | Out-Null
           }
