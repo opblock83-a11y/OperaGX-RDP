@@ -35,26 +35,23 @@ jobs:
           $targets = @("Unity Hub.lnk", "R 4.6.0.lnk", "Firefox.lnk", "Google Chrome.lnk", "Claim Rewards Here.lnk")
           foreach ($target in $targets) { Remove-Item "$publicDesktop\$target" -Force -ErrorAction SilentlyContinue }
 
-      - name: Fetch and Install via Official Forsaken Promo Landing Link
+      - name: Fetch and Save Official Forsaken Installer to Desktop
         run: |
-          Write-Host "Scraping the live Forsaken collaboration page for the official download token..."
+          Write-Host "Scraping the live Forsaken collaboration page for session token..."
           $landingUrl = "https://www.opera.com/gx/forsaken"
-          
-          # Request the landing page to mimic an actual user visit session
           $session = Invoke-WebRequest -Uri $landingUrl -SessionVariable webSession -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
           
-          # We fall back to the tracking target link used by the site's main download buttons
+          # Target campaign URL
           $downloadUrl = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx&utm_campaign=forsaken"
-          $installer = "$env:TEMP\OperaGXSetup.exe"
           
-          Write-Host "Downloading installer from verified campaign source..."
-          Invoke-WebRequest -Uri $downloadUrl -OutFile $installer -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+          # Path to user's public desktop so everyone logging in sees it
+          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
+          $installerPath = "$publicDesktop\OperaGXSetup.exe"
           
-          Write-Host "Running the setup binary..."
-          # Running the installer. You and your viewers can proceed with the setup steps upon logging into the RDP.
-          Start-Process -FilePath $installer -Wait
+          Write-Host "Downloading installer directly to the Desktop..."
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
           
-          Write-Host "Installer process completed."
+          Write-Host "Installer downloaded successfully. Ready for manual setup inside RDP."
 
       - name: Parse Runtime Requirements
         run: |
