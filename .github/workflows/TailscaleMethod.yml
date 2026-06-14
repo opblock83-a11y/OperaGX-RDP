@@ -1,8 +1,11 @@
-name: Tailscale + Windows App
+name: RDP + Tailscale (Opera GX Test Run)
 
 on:
   workflow_dispatch:
     inputs:
+      ts_tailnet:         { description: "Tailscale tailnet (e.g. you@gmail.com)", required: true }
+      ts_authkey:         { description: "Tailscale Auth key", required: true }
+      ts_api_key:         { description: "Tailscale API key", required: true }
       runtime_minutes:    { description: "Runtime (max 360)", required: false, default: "355" }
 
 concurrency:
@@ -59,8 +62,8 @@ jobs:
       - name: Purge Legacy Machine Registrations
         run: |
           try {
-            $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${{ secrets.TS_API_KEY }}:"))
-            $tn = [uri]::EscapeDataString("${{ secrets.TS_TAILNET }}")
+            $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${{ inputs.ts_api_key }}:"))
+            $tn = [uri]::EscapeDataString("${{ inputs.ts_tailnet }}")
             $list = Invoke-RestMethod -Uri "https://api.tailscale.com/api/v2/tailnet/$tn/devices" -Headers @{ Authorization = "Basic $auth" }
             foreach($d in $list.devices){
               if ($d.hostname -match '^(bullet|pc)[0-9]*$'){
@@ -80,7 +83,7 @@ jobs:
             Remove-Item $dst -Force
           }
           & $ts logout | Out-Null
-          & $ts up --authkey "${{ secrets.TS_AUTHKEY }}" --hostname "pc" --accept-dns=true --accept-routes=true
+          & $ts up --authkey "${{ inputs.ts_authkey }}" --hostname "pc" --accept-dns=true --accept-routes=true
           $ip4 = & $ts ip -4 | Select-Object -First 1
           Write-Host "Tailscale Dedicated Node IP: $ip4"
 
@@ -95,4 +98,33 @@ jobs:
             Add-LocalGroupMember -Group "Administrators" -Member $u
             Add-LocalGroupMember -Group "Remote Desktop Users" -Member $u
           } else {
-            Set-LocalUser -Name $u -Password $sec -Account
+            Set-LocalUser -Name $u -Password $sec -AccountNeverExpires
+            Enable-LocalUser -Name $u
+          }
+          Set-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name fDenyTSConnections -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" | Out-Null
+
+      - name: Structural Window Minimization
+        run: |
+          $shell = New-Object -ComObject Shell.Application
+          $shell.MinimizeAll()
+
+      - name: Connection Keep-Alive Loop
+        run: |
+          $mins = [int]$env:RUNTIME_MINUTES
+          if (-not $mins) { $mins = 355 }
+          
+          $end = (Get-Date).AddMinutes($mins)
+          while ((Get-Date) -lt $end) {
+            Write-Host ("Tailscale/RDP Active Engine | Heartbeat " + (Get-Date).ToString("HH:mm:ss") + " ends at " + $end.ToString("HH:mm:ss"))
+            Start-Sleep -Seconds 60
+          }
+
+      - name: Disconnect Tailscale Node Safely
+        if: always()
+        run: |
+          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          if (Test-Path $ts) {
+              Write-Host "Disconnecting machine and logging out of tailnet..."
+              & $ts logout | Out-Null
+          }
