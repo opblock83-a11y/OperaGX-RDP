@@ -1,4 +1,4 @@
-name: RDP + Tailscale (Cleaned & Minimal)
+name: Tailscale/Windows App
 
 on:
   workflow_dispatch:
@@ -29,16 +29,6 @@ jobs:
       RDP_PASS: "Pass1234"
 
     steps:
-      - name: Force Hardware Portrait Display Resolution for Mobile
-        run: |
-          Write-Host "Injecting explicit vertical dimension constraints into RDP layer..."
-          $RdpPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
-          New-ItemProperty -Path $RdpPath -Name "DefaultTargetWidth" -PropertyType DWord -Value 1080 -Force -ErrorAction SilentlyContinue
-          New-ItemProperty -Path $RdpPath -Name "DefaultTargetHeight" -PropertyType DWord -Value 1920 -Force -ErrorAction SilentlyContinue
-          
-          # Force the display resolution subsystem layout
-          Set-DisplayResolution -Width 1080 -Height 1920 -Force -ErrorAction SilentlyContinue
-
       - name: Wipe Unnecessary Pre-Installed GitHub Apps & Shortcuts
         run: |
           $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
@@ -108,21 +98,20 @@ jobs:
           $ip4 = & $ts ip -4 | Select-Object -First 1
           Write-Host "Tailscale Dedicated Node IP: $ip4"
 
-      - name: Hijack Admin Session & Rename runneradmin to user
+      - name: Provision RDP User Identity & Global System Rules
         run: |
           Rename-Computer -NewName "pc" -Force -ErrorAction SilentlyContinue
           
-          # Rename the active runneradmin account directly to user
-          Write-Host "Renaming default admin profile context to target identity..."
-          if (Get-LocalUser -Name "runneradmin" -ErrorAction SilentlyContinue) {
-              Rename-LocalUser -Name "runneradmin" -NewName "user"
-          }
-          
-          # Set the password on the newly renamed user profile
+          $u = $env:RDP_USER
           $sec = ConvertTo-SecureString $env:RDP_PASS -AsPlainText -Force
-          Set-LocalUser -Name "user" -Password $sec -AccountNeverExpires -UserMayChangePassword $true
-          
-          # Ensure Remote Desktop access is globally unblocked
+          if (-not (Get-LocalUser -Name $u -EA SilentlyContinue)) {
+            New-LocalUser -Name $u -Password $sec -AccountNeverExpires
+            Add-LocalGroupMember -Group "Administrators" -Member $u
+            Add-LocalGroupMember -Group "Remote Desktop Users" -Member $u
+          } else {
+            Set-LocalUser -Name $u -Password $sec -AccountNeverExpires
+            Enable-LocalUser -Name $u
+          }
           Set-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name fDenyTSConnections -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop" | Out-Null
 
