@@ -50,7 +50,6 @@ jobs:
           if (-not (Test-Path $ad)) { $ad = "C:\Program Files\AnyDesk\AnyDesk.exe" }
           
           cmd.exe /c "echo ${{ env.ANYDESK_PASS }} | `"$ad`" --set-password"
-          # Clears AnyDesk's warning exit code to prevent PowerShell from throwing a fatal error
           $LASTEXITCODE = 0
           
           $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
@@ -77,6 +76,7 @@ jobs:
           $installer = "$env:TEMP\OperaGXSetup.exe"
           Invoke-WebRequest -Uri $url -OutFile $installer
           
+          # Your original installation setup that keeps the browser completely closed
           Start-Process -FilePath $installer -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0", "--desktopshortcut=1" -Wait
           Start-Sleep -Seconds 5
           
@@ -90,33 +90,17 @@ jobs:
           $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
           if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
 
-          # Let the installer finish creating paths, then briefly open headless to build the default profile layout
-          Start-Process -FilePath $operaExe -ArgumentList "--no-first-run", "--headless" -NoNewWindow
-          Start-Sleep -Seconds 5
-          Stop-Process -Name "opera" -Force -ErrorAction SilentlyContinue
-
-          # Safely inject the layout preferences after the profile files have been created
-          $prefPath = "$env:APPDATA\Opera Software\Opera GX Stable\Preferences"
-          if (Test-Path $prefPath) {
-              $json = Get-Content $prefPath -Raw
-              if ($json -notmatch '"gx_rewards"') {
-                  $json = $json -replace '"ui":\{', '"ui":{"sidebar":{"visible":true,"pinned_items":["gx_rewards","vpn_sidebar_item"]},'
-              }
-              if ($json -notmatch '"vpn"') {
-                  $json = $json -replace '"freedom":\{', '"freedom":{"proxy_switch":{"vpn_enabled_once_by_user":true},'
-              }
-              Set-Content -Path $prefPath -Value $json -Force
-          }
-
           Write-Host "Configuring explicit launcher shortcut with forced promo link and sidebar flags..."
           $WshShell = New-Object -ComObject WScript.Shell
           $Shortcut = $WshShell.CreateShortcut("$publicDesktop\Opera GX Browser.lnk")
           $Shortcut.TargetPath = $operaExe
-          $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --enable-vpn --with-feature:gx-rewards=1"
+          # Injects features right into the desktop shortcut arguments
+          $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem,WebRtcRemoteEventLog --enable-vpn"
           $Shortcut.Save()
           
-          # Launch browser directly with operational feature flags fully forced
-          Start-Process -FilePath $operaExe -ArgumentList "https://www.opera.com/gx/forsaken","--no-first-run","--enable-features=GXRewards,GXRewardsSidebarItem","--enable-vpn","--with-feature:gx-rewards=1"
+          # Launches Opera explicitly with runtime parameters to force activate VPN and Rewards
+          Write-Host "Launching Opera GX with custom feature configurations activated..."
+          Start-Process -FilePath $operaExe -ArgumentList "https://www.opera.com/gx/forsaken","--no-first-run","--enable-features=GXRewards,GXRewardsSidebarItem,WebRtcRemoteEventLog","--enable-vpn"
 
       - name: Fetch and Display AnyDesk Connection Address
         run: |
