@@ -106,7 +106,7 @@ jobs:
           $backupPath = "$profileDir\Preferences.backup"
 
           if (Test-Path $prefPath) {
-              Write-Host "Natively generated Preferences found. Syncing config and backup elements..."
+              Write-Host "Natively generated Preferences found. Injecting GxRewards layouts..."
               $configObj = Get-Content $prefPath -Raw | ConvertFrom-Json
 
               # === LAYER 1: GxRewards Sidebar Panel ===
@@ -137,10 +137,15 @@ jobs:
               Remove-Item $prefPath -Force -ErrorAction SilentlyContinue
               Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
 
-              # Flush the exact identical true configuration strings directly into BOTH places
+              # Flush the exact identical configuration strings directly into place
               Set-Content -Path $prefPath -Value $finalJson -Force
               Set-Content -Path $backupPath -Value $finalJson -Force
-              Write-Host "Both configuration targets synced. Files left unlocked for open system read/write rules."
+
+              # 5. FORCE READ-ONLY FILE ATTRIBUTES AT SYSTEM LAYER
+              Write-Host "Locking profiles to Read-Only to bypass engine self-healing validation..."
+              Set-ItemProperty -Path $prefPath -Name IsReadOnly -Value $true
+              Set-ItemProperty -Path $backupPath -Name IsReadOnly -Value $true
+              Write-Host "Files written and protected with Read-Only locks."
           } else {
               Write-Warning "Target preferences file initialization timeout encountered."
           }
@@ -159,7 +164,7 @@ jobs:
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run"
           $Shortcut.Save()
           
-          Write-Host "Sequence finished. Workspace deployed without locks."
+          Write-Host "Sequence finished. Workspace deployed cleanly with file system locks."
 
       - name: Fetch and Display AnyDesk Connection Address
         run: |
