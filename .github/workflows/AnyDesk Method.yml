@@ -15,7 +15,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 190
     env:
-      ANYDESK_PASS: Pass1234
+      ANYDESK_PASS: Pass@1234
       RUNTIME_MINUTES: 180
 
     steps:
@@ -31,14 +31,6 @@ jobs:
               if (Test-Path "$userDesktop\$target") { Remove-Item "$userDesktop\$target" -Force -ErrorAction SilentlyContinue }
           }
 
-      - name: Dismiss Annoying Windows System Properties Popups
-        run: |
-          Write-Host "Forcing closure of background paging file error popups..."
-          # Broaden signature target patterns to guarantee window suppression
-          Get-Process | Where-Object { $_.MainWindowTitle -match "System Properties" } | Stop-Process -Force -ErrorAction SilentlyContinue
-          Stop-Process -Name "systempropertiesadvanced" -Force -ErrorAction SilentlyContinue
-          Stop-Process -Name "systempropertiescomputername" -Force -ErrorAction SilentlyContinue
-
       - name: Download and Force Install AnyDesk
         run: |
           $url = "https://download.anydesk.com/AnyDesk.exe"
@@ -52,35 +44,45 @@ jobs:
           Start-Sleep -Seconds 5
           Remove-Item $dst -ErrorAction SilentlyContinue
 
-      - name: Configure Unattended Access Password
+      - name: Configure Unattended Access Password & Force Enable Touch Injection
         run: |
           $ad = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
           if (-not (Test-Path $ad)) { $ad = "C:\Program Files\AnyDesk\AnyDesk.exe" }
           
-          Write-Host "Injecting password via native pipeline wrapper..."
-          # Bypassing cmd.exe entirely to keep Windows error dialogues from intercepting the pipe stream
-          $env:ANYDESK_PASSWORD = "${{ env.ANYDESK_PASS }}"
-          echo "${{ env.ANYDESK_PASS }}" | & $ad --set-password
+          cmd.exe /c "echo ${{ env.ANYDESK_PASS }} | `"$ad`" --set-password"
+          
+          # Force Windows to allow UI Automation and Touch Injection over RDP layers
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesktopToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
+          
+          # Unblock Touch Remote/Tablet Mode restrictions in Remote Desktop Services
+          $tsPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations"
+          New-ItemProperty -Path $tsPath -Name "TouchMode" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
+          New-ItemProperty -Path $tsPath -Name "EnableTouchInjection" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
+          
+          $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+          Set-ItemProperty -Path $path -Name "TaskbarGlomLevel" -Value 0 -ErrorAction SilentlyContinue
           
           Start-Process -FilePath $ad -ArgumentList "--restart-service" -Wait
           Start-Sleep -Seconds 5
 
       - name: Minimize Running Infrastructure Windows
         run: |
+          Write-Host "Sending active command prompt windows to the taskbar tray..."
           $shell = New-Object -ComObject Shell.Application
           $shell.MinimizeAll()
 
       - name: Optimize Resolution for Mobile Display
         run: |
-          Write-Host "Forcing 1600x1200 layout..."
+          Write-Host "Forcing resolution calibration matrix..."
           Set-DisplayResolution -Width 1600 -Height 1200 -Force -ErrorAction SilentlyContinue
 
-      - name: Pre-Configure Opera GX Profile (VPN & Sidebar Gift Icon)
+      - name: Pre-Configure VPN & Sidebar Rewards Layout
         run: |
-          Write-Host "Injecting custom configuration JSON to unblock features..."
+          Write-Host "Generating Opera configuration directory structure..."
           $profilePath = "$env:APPDATA\Opera Software\Opera GX Stable"
           if (-not (Test-Path $profilePath)) { New-Item -ItemType Directory -Path $profilePath -Force | Out-Null }
           
+          # Inject preferences to pin the GX Rewards icon and force the built-in VPN environment active
           $prefJson = @'
           {
             "freedom": {
@@ -101,7 +103,6 @@ jobs:
             }
           }
           '@
-          
           Set-Content -Path "$profilePath\Preferences" -Value $prefJson -Force
 
       - name: Download & Force Consumer Build of Opera GX
@@ -120,7 +121,7 @@ jobs:
               Move-Item -Path "$userDesktop\Opera GX.lnk" -Destination $publicDesktop -Force -ErrorAction SilentlyContinue
           }
           
-          Write-Host "Configuring explicit launcher shortcut with promo flags..."
+          Write-Host "Configuring explicit launcher shortcut with forced promo link and sidebar flags..."
           $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
           if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
           
@@ -129,8 +130,6 @@ jobs:
           $Shortcut.TargetPath = $operaExe
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --enable-vpn"
           $Shortcut.Save()
-          
-          Start-Process -FilePath "$publicDesktop\Opera GX Browser.lnk"
 
       - name: Fetch and Display AnyDesk Connection Address
         run: |
