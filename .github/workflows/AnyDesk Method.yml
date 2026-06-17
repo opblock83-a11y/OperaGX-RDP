@@ -33,7 +33,9 @@ jobs:
 
       - name: Dismiss Annoying Windows System Properties Popups
         run: |
-          Write-Host "Killing background paging file error popups..."
+          Write-Host "Forcing closure of background paging file error popups..."
+          # Broaden signature target patterns to guarantee window suppression
+          Get-Process | Where-Object { $_.MainWindowTitle -match "System Properties" } | Stop-Process -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "systempropertiesadvanced" -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "systempropertiescomputername" -Force -ErrorAction SilentlyContinue
 
@@ -55,8 +57,11 @@ jobs:
           $ad = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
           if (-not (Test-Path $ad)) { $ad = "C:\Program Files\AnyDesk\AnyDesk.exe" }
           
-          # Using the standardized robust connection setup to avoid registry crashes
-          cmd.exe /c "echo ${{ env.ANYDESK_PASS }} | `"$ad`" --set-password"
+          Write-Host "Injecting password via native pipeline wrapper..."
+          # Bypassing cmd.exe entirely to keep Windows error dialogues from intercepting the pipe stream
+          $env:ANYDESK_PASSWORD = "${{ env.ANYDESK_PASS }}"
+          echo "${{ env.ANYDESK_PASS }}" | & $ad --set-password
+          
           Start-Process -FilePath $ad -ArgumentList "--restart-service" -Wait
           Start-Sleep -Seconds 5
 
@@ -76,7 +81,6 @@ jobs:
           $profilePath = "$env:APPDATA\Opera Software\Opera GX Stable"
           if (-not (Test-Path $profilePath)) { New-Item -ItemType Directory -Path $profilePath -Force | Out-Null }
           
-          # Custom preferences configuration structured to activate requested flags natively
           $prefJson = @'
           {
             "freedom": {
@@ -123,11 +127,9 @@ jobs:
           $WshShell = New-Object -ComObject WScript.Shell
           $Shortcut = $WshShell.CreateShortcut("$publicDesktop\Opera GX Browser.lnk")
           $Shortcut.TargetPath = $operaExe
-          # Combining URL routing parameters alongside feature-level triggers
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --enable-vpn"
           $Shortcut.Save()
           
-          # Launch browser directly using the newly configured environment adjustments
           Start-Process -FilePath "$publicDesktop\Opera GX Browser.lnk"
 
       - name: Fetch and Display AnyDesk Connection Address
