@@ -1,4 +1,3 @@
-
 name: AnyDesk
 
 on:
@@ -107,7 +106,7 @@ jobs:
           $backupPath = "$profileDir\Preferences.backup"
 
           if (Test-Path $prefPath) {
-              Write-Host "Natively generated Preferences found. Injecting GxRewards and Auto-VPN nodes..."
+              Write-Host "Natively generated Preferences found. Syncing config and backup elements..."
               $configObj = Get-Content $prefPath -Raw | ConvertFrom-Json
 
               # === LAYER 1: GxRewards Sidebar Panel ===
@@ -132,37 +131,16 @@ jobs:
                   $configObj.ui.visibility.GxRewards = $true
               }
 
-              # === LAYER 3: Native Built-in VPN Engine Injection ===
-              if (-not $configObj.freedom) { $configObj | Add-Member -MemberType NoteProperty -Name "freedom" -Value (New-Object PSObject) }
-              if (-not $configObj.freedom.proxy_switcher) { $configObj.freedom | Add-Member -MemberType NoteProperty -Name "proxy_switcher" -Value (New-Object PSObject) }
-              
-              # Force proxy engine layers online to slip past anti-bot monitoring
-              if ($configObj.freedom.proxy_switcher.enabled -eq $null) {
-                  $configObj.freedom.proxy_switcher | Add-Member -MemberType NoteProperty -Name "enabled" -Value $true -Force
-              } else {
-                  $configObj.freedom.proxy_switcher.enabled = $true
-              }
-              
-              if ($configObj.freedom.proxy_switcher.ui_visible -eq $null) {
-                  $configObj.freedom.proxy_switcher | Add-Member -MemberType NoteProperty -Name "ui_visible" -Value $true -Force
-              } else {
-                  $configObj.freedom.proxy_switcher.ui_visible = $true
-              }
-
               $finalJson = $configObj | ConvertTo-Json -Depth 100 -Compress
 
               # Clear out the un-mutated files cleanly
               Remove-Item $prefPath -Force -ErrorAction SilentlyContinue
               Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
 
-              # Flush the exact identical configuration strings directly into place
+              # Flush the exact identical true configuration strings directly into BOTH places
               Set-Content -Path $prefPath -Value $finalJson -Force
               Set-Content -Path $backupPath -Value $finalJson -Force
-
-              # Lock profiles to Read-Only so they survive the initial boot validation check
-              Set-ItemProperty -Path $prefPath -Name IsReadOnly -Value $true
-              Set-ItemProperty -Path $backupPath -Name IsReadOnly -Value $true
-              Write-Host "Files written and protected with initial Read-Only locks."
+              Write-Host "Both configuration targets synced. Files left unlocked for open system read/write rules."
           } else {
               Write-Warning "Target preferences file initialization timeout encountered."
           }
@@ -181,18 +159,7 @@ jobs:
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run"
           $Shortcut.Save()
           
-          # 5. ASYNC BACKGROUND UNLOCK SEQUENCE
-          # Waits 10 seconds for the browser to read values into RAM, then unlocks the files so anti-bot scripts can write data normally.
-          Write-Host "Spawning background file-unlock routine..."
-          Start-Job -ScriptBlock {
-              Start-Sleep -Seconds 10
-              $p1 = "$env:APPDATA\Opera Software\Opera GX Stable\Default\Preferences"
-              $p2 = "$env:APPDATA\Opera Software\Opera GX Stable\Default\Preferences.backup"
-              if (Test-Path $p1) { Set-ItemProperty -Path $p1 -Name IsReadOnly -Value $false }
-              if (Test-Path $p2) { Set-ItemProperty -Path $p2 -Name IsReadOnly -Value $false }
-          } | Out-Null
-
-          Write-Host "Sequence finished. Workspace deployed."
+          Write-Host "Sequence finished. Workspace deployed without locks."
 
       - name: Fetch and Display AnyDesk Connection Address
         run: |
