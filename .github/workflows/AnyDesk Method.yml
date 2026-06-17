@@ -1,4 +1,3 @@
-
 name: AnyDesk
 
 on:
@@ -91,8 +90,8 @@ jobs:
           $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
           if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
 
-          # 2. Launch normally to let it generate pristine profile base and backup structures
-          Write-Host "Launching clean engine layer to initialize workspace profiles..."
+          # 2. Launch normally to let it generate pristine profile structures
+          Write-Host "Initializing base layout configurations..."
           Start-Process -FilePath $operaExe -ArgumentList "--no-first-run"
           Start-Sleep -Seconds 15
 
@@ -107,23 +106,24 @@ jobs:
           $backupPath = "$profileDir\Preferences.backup"
 
           if (Test-Path $prefPath) {
-              Write-Host "Natively generated Preferences found. Injecting GxRewards layouts..."
+              Write-Host "Natively generated Preferences found. Injecting Layout elements..."
               $configObj = Get-Content $prefPath -Raw | ConvertFrom-Json
 
-              # === LAYER 1: GxRewards Sidebar Panel ===
+              # === LAYER 1: GxRewards & VPN Sidebar Panel Layouts ===
               if (-not $configObj.ui) { $configObj | Add-Member -MemberType NoteProperty -Name "ui" -Value (New-Object PSObject) }
               if (-not $configObj.ui.browser) { $configObj.ui | Add-Member -MemberType NoteProperty -Name "browser" -Value (New-Object PSObject) }
               if (-not $configObj.ui.browser.sidebar) { $configObj.ui.browser | Add-Member -MemberType NoteProperty -Name "sidebar" -Value (New-Object PSObject) }
               if (-not $configObj.ui.browser.sidebar.item_prefs) { $configObj.ui.browser.sidebar | Add-Member -MemberType NoteProperty -Name "item_prefs" -Value (New-Object PSObject) }
               if (-not $configObj.ui.browser.sidebar.item_prefs.visibility) { $configObj.ui.browser.sidebar.item_prefs | Add-Member -MemberType NoteProperty -Name "visibility" -Value (New-Object PSObject) }
               
+              # Force GxRewards visibility
               if ($configObj.ui.browser.sidebar.item_prefs.visibility.GxRewards -eq $null) {
                   $configObj.ui.browser.sidebar.item_prefs.visibility | Add-Member -MemberType NoteProperty -Name "GxRewards" -Value $true -Force
               } else {
                   $configObj.ui.browser.sidebar.item_prefs.visibility.GxRewards = $true
               }
 
-              # === LAYER 2: Root Visibility Node ===
+              # === LAYER 2: Root UI Visibility Nodes ===
               if (-not $configObj.ui.visibility) { $configObj.ui | Add-Member -MemberType NoteProperty -Name "visibility" -Value (New-Object PSObject) }
               
               if ($configObj.ui.visibility.GxRewards -eq $null) {
@@ -132,21 +132,31 @@ jobs:
                   $configObj.ui.visibility.GxRewards = $true
               }
 
+              # === LAYER 3: Explicit VPN Sidebar Pin Config ===
+              if (-not $configObj.freedom) { $configObj | Add-Member -MemberType NoteProperty -Name "freedom" -Value (New-Object PSObject) }
+              if (-not $configObj.freedom.proxy_switcher) { $configObj.freedom | Add-Member -MemberType NoteProperty -Name "proxy_switcher" -Value (New-Object PSObject) }
+              
+              # This pins the VPN button explicitly to the sidebar layout without turning the proxy connection engine on automatically
+              if ($configObj.freedom.proxy_switcher.ui_visible -eq $null) {
+                  $configObj.freedom.proxy_switcher | Add-Member -MemberType NoteProperty -Name "ui_visible" -Value $true -Force
+              } else {
+                  $configObj.freedom.proxy_switcher.ui_visible = $true
+              }
+
               $finalJson = $configObj | ConvertTo-Json -Depth 100 -Compress
 
               # Clear out the un-mutated files cleanly
               Remove-Item $prefPath -Force -ErrorAction SilentlyContinue
               Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
 
-              # Flush the exact identical configuration strings directly into place
+              # Flush the configuration adjustments into place
               Set-Content -Path $prefPath -Value $finalJson -Force
               Set-Content -Path $backupPath -Value $finalJson -Force
 
-              # 5. FORCE READ-ONLY FILE ATTRIBUTES AT SYSTEM LAYER
-              Write-Host "Locking profiles to Read-Only to bypass engine self-healing validation..."
+              # Lock profiles to Read-Only so they survive the initial boot validation check
               Set-ItemProperty -Path $prefPath -Name IsReadOnly -Value $true
               Set-ItemProperty -Path $backupPath -Name IsReadOnly -Value $true
-              Write-Host "Files written and protected with Read-Only locks."
+              Write-Host "Files written and protected with initial Read-Only locks."
           } else {
               Write-Warning "Target preferences file initialization timeout encountered."
           }
@@ -165,7 +175,19 @@ jobs:
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run"
           $Shortcut.Save()
           
-          Write-Host "Sequence finished. Workspace deployed cleanly with file system locks."
+          # 5. ASYNC 5-SECOND UNLOCK SEQUENCE
+          # Waits exactly 5 seconds for the engine to register the pinned sidebar layout icons on boot, 
+          # then instantly unlocks the file permissions so the VPN and anti-bot verification scripts can write data normally.
+          Write-Host "Spawning optimized background file-unlock routine..."
+          Start-Job -ScriptBlock {
+              Start-Sleep -Seconds 5
+              $p1 = "$env:APPDATA\Opera Software\Opera GX Stable\Default\Preferences"
+              $p2 = "$env:APPDATA\Opera Software\Opera GX Stable\Default\Preferences.backup"
+              if (Test-Path $p1) { Set-ItemProperty -Path $p1 -Name IsReadOnly -Value $false }
+              if (Test-Path $p2) { Set-ItemProperty -Path $p2 -Name IsReadOnly -Value $false }
+          } | Out-Null
+
+          Write-Host "Sequence finished. Workspace deployed cleanly."
 
       - name: Fetch and Display AnyDesk Connection Address
         run: |
