@@ -73,4 +73,95 @@ jobs:
 
       - name: Optimize Resolution for Mobile Display
         run: |
-          Write-Host "Forcing resolution
+          Write-Host "Forcing resolution calibration matrix..."
+          Set-DisplayResolution -Width 1600 -Height 1200 -Force -ErrorAction SilentlyContinue
+
+      - name: Download & Force Consumer Build of Opera GX
+        run: |
+          Write-Host "Fetching consumer-stable Opera GX Core..."
+          $url = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx"
+          $installer = "$env:TEMP\OperaGXSetup.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          
+          # Runs your original working setup parameters
+          Start-Process -FilePath $installer -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0", "--desktopshortcut=1" -Wait
+          Start-Sleep -Seconds 5
+
+          $operaExe = "$env:ProgramFiles\Opera GX\opera.exe"
+          if (-not (Test-Path $operaExe)) { $operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
+
+          # Force create the directory structure directly so Windows definitely has a target path
+          $targetDir = "$env:APPDATA\Opera Software\Opera GX Stable\Default"
+          if (-not (Test-Path $targetDir)) { 
+              New-Item -ItemType Directory -Path $targetDir -Force | Out-Null 
+          }
+          $prefPath = "$targetDir\Preferences"
+
+          # Construct a clean base JSON with the sidebar and gx_rewards pinned explicitly
+          Write-Host "Pre-seeding layout properties into the target configuration profile..."
+          $baseConfig = @{
+              ui = @{
+                  sidebar = @{
+                      visible = $true
+                      pinned_items = @("gx_rewards")
+                  }
+              }
+          }
+
+          # Convert object to compressed JSON format and commit it directly to the target file path
+          $baseConfig | ConvertTo-Json -Depth 100 -Compress | Set-Content $prefPath -Force
+          Write-Host "Profile configuration seeded successfully."
+          
+          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
+          $userDesktop = "$env:USERPROFILE\Desktop"
+          
+          if (Test-Path "$userDesktop\Opera GX.lnk") {
+              Move-Item -Path "$userDesktop\Opera GX.lnk" -Destination $publicDesktop -Force -ErrorAction SilentlyContinue
+          }
+
+          Write-Host "Configuring explicit launcher shortcut with forced promo link..."
+          $WshShell = New-Object -ComObject WScript.Shell
+          $Shortcut = $WshShell.CreateShortcut("$publicDesktop\Opera GX Browser.lnk")
+          $Shortcut.TargetPath = $operaExe
+          $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run"
+          $Shortcut.Save()
+          
+          Write-Host "Sequence finished. Opera GX workspace initialized cleanly."
+
+      - name: Fetch and Display AnyDesk Connection Address
+        run: |
+          $confPath = "C:\ProgramData\AnyDesk\system.conf"
+          $cleanId = ""
+          
+          for ($i = 1; $i -le 10; $i++) {
+              if (Test-Path $confPath) {
+                  $content = Get-Content $confPath -Raw
+                  if ($content -match 'ad\.anynet\.id=(\d+)') {
+                      $cleanId = $Matches[1]
+                      break
+                  }
+              }
+              Start-Sleep -Seconds 4
+          }
+          
+          $ESC = [char]27
+          $Green = "$ESC[32m"
+          $Yellow = "$ESC[33m"
+          $Red = "$ESC[31m"
+          $Reset = "$ESC[0m"
+          
+          Write-Host "${Green}====================================================${Reset}"
+          Write-Host "${Green}        ANYDESK CLOUD MACHINE IS READY TO CONNECT     ${Reset}"
+          Write-Host "${Green}====================================================${Reset}"
+          Write-Host "${Yellow} CONNECTION ID : ${Red}${cleanId}${Reset}"
+          Write-Host "${Yellow} PASSWORD      : ${Red}${{ env.ANYDESK_PASS }}${Reset}"
+          Write-Host "${Green}====================================================${Reset}"
+
+      - name: Keep alive
+        run: |
+          $mins = [int]"${{ env.RUNTIME_MINUTES }}"
+          $end = (Get-Date).AddMinutes($mins)
+          while ((Get-Date) -lt $end) {
+            Write-Host ("Cloud PC Heartbeat " + (Get-Date).ToString("HH:mm:ss") + " | Active until " + $end.ToString("HH:mm:ss"))
+            Start-Sleep -Seconds 60
+          }
