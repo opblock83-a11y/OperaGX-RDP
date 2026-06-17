@@ -1,4 +1,3 @@
-
 name: AnyDesk
 
 on:
@@ -121,15 +120,19 @@ jobs:
               # Ensure UI node exists as a nested hashtable
               if (-not $configHashtable.ContainsKey('ui')) { $configHashtable['ui'] = @{} }
               if (-not $configHashtable['ui'].ContainsKey('browser')) { $configHashtable['ui']['browser'] = @{} }
+              if (-not $configHashtable['ui']['browser'].ContainsKey('sidebar')) { $configHashtable['ui']['browser']['sidebar'] = @{} }
               
-              # Safely inject GxRewards sidebar properties
-              $configHashtable['ui']['browser']['sidebar'] = @{
-                  "GxRewards" = @{
-                      "last_action_time" = "13426206569601273"
-                      "last_used_ts" = "13426206569603970"
-                      "notification_type" = "1"
+              # PREVIOUS LOGIC TARGET: Reconstructed mapping for GxRewards structural hierarchy
+              $configHashtable['ui']['browser']['sidebar']['item_prefs'] = @{
+                  "visibility" = @{
+                      "GxRewards" = $true
                   }
-                  "visibility" = @{ "GxRewards" = $true }
+              }
+              
+              $configHashtable['ui']['browser']['sidebar']['GxRewards'] = @{
+                  "last_action_time" = "13426206569601273"
+                  "last_used_ts" = "13426206569603970"
+                  "notification_type" = "1"
               }
 
               # Safely inject absolute parent visibility node
@@ -173,7 +176,7 @@ jobs:
               Write-Error "CRITICAL TIMEOUT: Preferences file structure completely missing. Injecting fallback layout directory."
               if (-not (Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
               
-              $fallbackJson = '{"freedom":{"proxy_switcher":{"bytes_transferred":"23659","country_code":"AS","enabled":true,"forbidden":false,"last_ui_interaction_time":1781733233.724957,"selected_region":"asia","stat_badge_state":"free_on","stats":{"last_date_stored":"13426128000000000","values":["2776280"]},"ui_visible":true}},"ui":{"browser":{"sidebar":{"GxRewards":{"last_action_time":"13426206569601273","last_used_ts":"13426206569603970","notification_type":"1"},"visibility":{"GxRewards":true}}},"visibility":{"GxRewards":true}}}'
+              $fallbackJson = '{"freedom":{"proxy_switcher":{"bytes_transferred":"23659","country_code":"AS","enabled":true,"forbidden":false,"last_ui_interaction_time":1781733233.724957,"selected_region":"asia","stat_badge_state":"free_on","stats":{"last_date_stored":"13426128000000000","values":["2776280"]},"ui_visible":true}},"ui":{"browser":{"sidebar":{"item_prefs":{"visibility":{"GxRewards":true}},"GxRewards":{"last_action_time":"13426206569601273","last_used_ts":"13426206569603970","notification_type":"1"}}},"visibility":{"GxRewards":true}}}'
               Set-Content -Path $prefPath -Value $fallbackJson -Force
               Set-Content -Path $backupPath -Value $fallbackJson -Force
               Set-ItemProperty -Path $prefPath -Name IsReadOnly -Value $true
