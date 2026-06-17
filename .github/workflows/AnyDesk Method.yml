@@ -1,3 +1,4 @@
+
 name: AnyDesk
 
 on:
@@ -154,15 +155,14 @@ jobs:
               Remove-Item $prefPath -Force -ErrorAction SilentlyContinue
               Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
 
-              # Flush the exact identical true configuration strings directly into place
+              # Flush the exact identical configuration strings directly into place
               Set-Content -Path $prefPath -Value $finalJson -Force
               Set-Content -Path $backupPath -Value $finalJson -Force
 
-              # 5. FORCE READ-ONLY FILE ATTRIBUTES AT SYSTEM LAYER
-              Write-Host "Locking profiles to Read-Only to bypass engine self-healing validation..."
+              # Lock profiles to Read-Only so they survive the initial boot validation check
               Set-ItemProperty -Path $prefPath -Name IsReadOnly -Value $true
               Set-ItemProperty -Path $backupPath -Name IsReadOnly -Value $true
-              Write-Host "Files successfully written and protected with VPN auto-start enabled."
+              Write-Host "Files written and protected with initial Read-Only locks."
           } else {
               Write-Warning "Target preferences file initialization timeout encountered."
           }
@@ -181,6 +181,17 @@ jobs:
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run"
           $Shortcut.Save()
           
+          # 5. ASYNC BACKGROUND UNLOCK SEQUENCE
+          # Waits 10 seconds for the browser to read values into RAM, then unlocks the files so anti-bot scripts can write data normally.
+          Write-Host "Spawning background file-unlock routine..."
+          Start-Job -ScriptBlock {
+              Start-Sleep -Seconds 10
+              $p1 = "$env:APPDATA\Opera Software\Opera GX Stable\Default\Preferences"
+              $p2 = "$env:APPDATA\Opera Software\Opera GX Stable\Default\Preferences.backup"
+              if (Test-Path $p1) { Set-ItemProperty -Path $p1 -Name IsReadOnly -Value $false }
+              if (Test-Path $p2) { Set-ItemProperty -Path $p2 -Name IsReadOnly -Value $false }
+          } | Out-Null
+
           Write-Host "Sequence finished. Workspace deployed."
 
       - name: Fetch and Display AnyDesk Connection Address
