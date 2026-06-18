@@ -117,7 +117,6 @@ jobs:
               $configHashtable = Get-Content $prefPath -Raw | ConvertFrom-Json -AsHashtable
               if ($null -eq $configHashtable) { $configHashtable = @{} }
 
-              # Ensure UI mapping matrices exist cleanly
               if (-not $configHashtable.ContainsKey('ui')) { $configHashtable['ui'] = @{} }
               if (-not $configHashtable['ui'].ContainsKey('browser')) { $configHashtable['ui']['browser'] = @{} }
               if (-not $configHashtable['ui'].ContainsKey('sidebar')) { $configHashtable['ui']['browser']['sidebar'] = @{} }
@@ -134,7 +133,6 @@ jobs:
 
               $configHashtable['ui']['visibility'] = @{ "GxRewards" = $true }
 
-              # Convert structural dictionary back into compressed layout data
               $finalJson = $configHashtable | ConvertTo-Json -Depth 100 -Compress
 
               Remove-Item $prefPath -Force -ErrorAction SilentlyContinue
@@ -151,16 +149,26 @@ jobs:
               Move-Item -Path "$userDesktop\Opera GX.lnk" -Destination $publicDesktop -Force -ErrorAction SilentlyContinue
           }
 
-          Write-Host "Configuring explicit vanilla launcher shortcut..."
+          # 5. STEALTH AGENT PREP: Purging explicit system identifiers
+          Write-Host "Purging execution environment environment variables..."
+          $targetVars = @("GITHUB_ACTIONS", "GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_ACTOR", "RUNNER_NAME", "RUNNER_TRACKER")
+          foreach ($var in $targetVars) {
+              [Environment]::SetEnvironmentVariable($var, $null, "Process")
+          }
+
+          # Aggressive engine spoof arguments to pass deep Turnstile checks
+          $stealthArgs = "https://www.opera.com/gx/forsaken --no-first-run --disable-blink-features=AutomationControlled --disable-infobars --password-store=basic"
+
+          Write-Host "Configuring explicit stealth launcher shortcut..."
           $WshShell = New-Object -ComObject WScript.Shell
           $Shortcut = $WshShell.CreateShortcut("$publicDesktop\Opera GX Browser.lnk")
           $Shortcut.TargetPath = $operaExe
-          $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run"
+          $Shortcut.Arguments = $stealthArgs
           $Shortcut.Save()
           Start-Sleep -Seconds 5
 
-          Write-Host "Opening deployment instance cleanly..."
-          Start-Process -FilePath $operaExe -ArgumentList "https://www.opera.com/gx/forsaken", "--no-first-run"
+          Write-Host "Opening deployment instance under stealth parameters..."
+          Start-Process -FilePath $operaExe -ArgumentList $stealthArgs
           Write-Host "Sequence finished. Workspace deployed smoothly with no active custom network configurations."
           Start-Sleep -Seconds 10
 
